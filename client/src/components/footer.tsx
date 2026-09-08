@@ -134,7 +134,7 @@ function Footer() {
                         </Popup>
                     </>}
                 </p>
-                <div className="w-fit-content inline-flex rounded-full border border-zinc-200 p-[3px] dark:border-zinc-700">
+                <div className="terminal-theme-switch" role="group" aria-label="Color theme">
                     <ThemeButton mode='light' current={modeState} label="Toggle light mode" icon="ri-sun-line" onClick={setMode} />
                     <ThemeButton mode='system' current={modeState} label="Toggle system mode" icon="ri-computer-line" onClick={setMode} />
                     <ThemeButton mode='dark' current={modeState} label="Toggle dark mode" icon="ri-moon-line" onClick={setMode} />
@@ -153,8 +153,9 @@ function Spliter() {
 
 function ThemeButton({ current, mode, label, icon, onClick }: { current: ThemeMode, label: string, mode: ThemeMode, icon: string, onClick: (mode: ThemeMode) => void }) {
     return (<button aria-label={label} type="button" onClick={() => onClick(mode)}
-        className={`rounded-inherit inline-flex h-[32px] w-[32px] items-center justify-center border-0 t-primary ${current === mode ? "bg-w rounded-full shadow-xl shadow-light" : ""}`}>
-        <i className={`${icon}`} />
+        aria-pressed={current === mode}
+        className={`terminal-theme-button ${current === mode ? "terminal-theme-button-active" : ""}`}>
+        <i className={icon} aria-hidden="true" />
     </button>)
 }
 

@@ -212,25 +212,46 @@ a.toc-link {
 /* Pearcache CLI theme */
 :root {
   color-scheme: dark;
-  --bg-base: #050505;
-  --text-phosphor: #00ff41;
-  --text-body: #e0e0e0;
-  --glass-bg: rgb(0 20 5 / 0.65);
-  --glass-border: rgb(0 255 65 / 0.3);
+  --bg-base: #111017;
+  --text-phosphor: #f0b35a;
+  --text-body: #ded9e8;
+  --glass-bg: rgb(24 22 34 / 0.94);
+  --glass-border: rgb(240 179 90 / 0.72);
   --link-hover: #ffffff;
-  --theme-rgb: 0 255 65;
-  --theme-hover-rgb: 0 204 52;
-  --theme-active-rgb: 0 153 39;
-  --rin-canvas-rgb: 5 5 5;
-  --rin-surface-rgb: 0 20 5;
-  --rin-surface-muted-rgb: 5 25 10;
-  --rin-surface-hover-rgb: 10 40 15;
-  --rin-surface-active-rgb: 15 55 20;
-  --rin-text-rgb: 224 224 224;
-  --rin-text-muted-rgb: 160 190 168;
-  --rin-border-rgb: 0 255 65;
+  --theme-rgb: 240 179 90;
+  --theme-hover-rgb: 255 205 125;
+  --theme-active-rgb: 196 135 56;
+  --rin-canvas-rgb: 17 16 23;
+  --rin-surface-rgb: 24 22 34;
+  --rin-surface-muted-rgb: 32 29 45;
+  --rin-surface-hover-rgb: 45 40 62;
+  --rin-surface-active-rgb: 58 50 78;
+  --rin-text-rgb: 222 217 232;
+  --rin-text-muted-rgb: 169 161 184;
+  --rin-border-rgb: 240 179 90;
   --rin-radius-control: 0;
   --rin-radius-surface: 2px;
+}
+
+[data-color-mode="light"] {
+  color-scheme: light;
+  --bg-base: #f4f1e8;
+  --text-phosphor: #8b4f12;
+  --text-body: #30291f;
+  --glass-bg: rgb(255 252 244 / 0.94);
+  --glass-border: rgb(139 79 18 / 0.5);
+  --link-hover: #4f2b0a;
+  --theme-rgb: 139 79 18;
+  --theme-hover-rgb: 174 103 28;
+  --theme-active-rgb: 107 57 12;
+  --rin-canvas-rgb: 244 241 232;
+  --rin-surface-rgb: 255 252 244;
+  --rin-surface-muted-rgb: 238 232 219;
+  --rin-surface-hover-rgb: 228 219 202;
+  --rin-surface-active-rgb: 216 204 183;
+  --rin-text-rgb: 48 41 31;
+  --rin-text-muted-rgb: 105 92 75;
+  --rin-border-rgb: 139 79 18;
 }
 
 html,
@@ -240,34 +261,184 @@ body {
 
 body {
   margin: 0;
-  padding: 0;
+  padding: 32px clamp(20px, 4vw, 64px);
   background-color: var(--bg-base);
-  background-image: radial-gradient(circle, rgb(0 255 65 / 0.05) 1px, transparent 1px);
-  background-size: 24px 24px;
+  background-image: none;
   color: var(--text-body);
   font-family: "Fira Code", "VT323", "Courier New", monospace !important;
   line-height: 1.6;
 }
 
-/* Keep shared surfaces readable without requiring every Tailwind card to change. */
+body::before {
+  position: fixed;
+  inset: 8px;
+  z-index: 100;
+  border: 2px solid var(--text-phosphor);
+  border-radius: 4px;
+  content: "";
+  pointer-events: none;
+}
+
+#root {
+  min-height: calc(100vh - 64px);
+}
+
+.terminal-nav-shell {
+  display: flex;
+  min-width: 0;
+  width: 100%;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--glass-border);
+  border-radius: 3px;
+  background: var(--glass-bg);
+  box-shadow: 0 0 24px rgb(0 0 0 / 0.24);
+}
+
+.terminal-nav-shell-mobile {
+  width: 100%;
+}
+
+.terminal-brand {
+  flex: 0 0 auto;
+  max-width: 190px;
+}
+
+.terminal-brand-title {
+  color: var(--text-body) !important;
+  font-size: 0.95rem !important;
+  line-height: 1.2;
+}
+
+.terminal-brand-description {
+  color: var(--rin-text-muted) !important;
+  font-size: 0.65rem !important;
+  line-height: 1.2;
+}
+
+.terminal-nav-prompt {
+  flex: 0 0 auto;
+  color: var(--text-phosphor);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.terminal-nav-links {
+  flex: 1 1 auto;
+  display: flex;
+  justify-content: center;
+}
+
+.terminal-nav-shell a {
+  border: 0;
+  color: var(--text-body);
+  text-transform: lowercase;
+}
+
+.terminal-nav-shell a::before {
+  color: var(--text-phosphor);
+  content: "./";
+}
+
+.terminal-nav-shell a:hover,
+.terminal-nav-shell a:focus-visible,
+.terminal-nav-shell a.text-theme {
+  color: var(--text-phosphor) !important;
+}
+
+.terminal-nav-shell a.text-theme::after {
+  content: " _";
+  animation: terminal-cursor 1s step-end infinite;
+}
+
+.terminal-nav-shell img {
+  border-color: var(--glass-border);
+}
+
+.terminal-nav-shell p {
+  color: var(--text-body) !important;
+}
+
+.terminal-theme-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--glass-border);
+  border-radius: 3px;
+  background: var(--glass-bg);
+}
+
+.terminal-theme-button {
+  display: inline-flex;
+  width: 32px;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--text-body) !important;
+}
+
+.terminal-theme-button:hover:not(:disabled),
+.terminal-theme-button:active:not(:disabled),
+.terminal-theme-button-active {
+  background: var(--text-phosphor) !important;
+  color: var(--bg-base) !important;
+}
+
+.terminal-theme-button:focus-visible {
+  outline: 1px solid var(--text-phosphor);
+  outline-offset: -2px;
+}
+
+[data-color-mode="light"] .terminal-nav-shell a.dark\:text-white {
+  color: var(--text-body) !important;
+}
+
+[data-color-mode="light"] .terminal-nav-shell a:hover,
+[data-color-mode="light"] .terminal-nav-shell a:focus-visible {
+  color: var(--text-phosphor) !important;
+}
+
+main,
+article,
+.wmde-markdown {
+  color: var(--text-body);
+}
+
+main > div,
+article {
+  border-color: rgb(240 179 90 / 0.38);
+}
+
+@keyframes terminal-cursor {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Theme shared surfaces without changing the layout spacing owned by components. */
 .bg-w,
 .bg-secondary,
 .border-card,
-article,
 .rin-modal-surface,
 .wmde-markdown,
 .w-md-editor {
   background: var(--glass-bg) !important;
   border: 1px solid var(--glass-border);
   border-radius: 2px !important;
-  box-shadow: 0 4px 30px rgb(0 0 0 / 0.5);
+  box-shadow: 0 4px 30px rgb(0 0 0 / 0.16);
 }
 
-.bg-w,
-.bg-secondary,
-.border-card,
-article {
-  padding: 24px;
+.border-card {
+  padding: 16px;
 }
 
 h1,
@@ -280,27 +451,15 @@ h4 {
   text-wrap: balance;
 }
 
-h1::before {
-  content: "root@pearcache:\\~# ";
-  opacity: 0.7;
-}
-
-h2::before {
-  content: "\\~/ ";
-  opacity: 0.7;
-}
-
 a {
   color: var(--text-phosphor);
   text-decoration: none;
-  border-bottom: 1px dotted var(--glass-border);
-  transition: color 0.2s ease-in-out, border-color 0.2s ease-in-out, text-shadow 0.2s ease-in-out;
+  transition: color 0.2s ease-in-out, text-shadow 0.2s ease-in-out;
 }
 
 a:hover,
 a:focus-visible {
   color: var(--link-hover);
-  border-bottom: 1px solid var(--link-hover);
   text-shadow: 0 0 8px rgb(0 255 65 / 0.4);
 }
 
@@ -308,7 +467,7 @@ button,
 input,
 textarea,
 select {
-  background: rgb(0 0 0 / 0.5) !important;
+  background: color-mix(in srgb, var(--glass-bg) 78%, var(--bg-base)) !important;
   color: var(--text-phosphor) !important;
   border: 1px solid var(--text-phosphor) !important;
   border-radius: 0 !important;
@@ -324,6 +483,22 @@ button:hover:not(:disabled),
 button:active:not(:disabled) {
   background: var(--text-phosphor) !important;
   color: var(--bg-base) !important;
+}
+
+/* Keep image avatars and status dots circular inside the square UI. */
+img.rounded-full,
+div.rounded-full.bg-theme {
+  border-radius: 9999px !important;
+}
+
+/* Terminal-style dividers and form controls. */
+hr {
+  border-color: var(--glass-border);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: color-mix(in srgb, rgb(var(--rin-text-muted-rgb)), transparent 25%) !important;
 }
 
 button:focus-visible,
@@ -347,5 +522,30 @@ select:focus-visible {
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 640px) {
+  body {
+    padding: 18px 12px;
+  }
+
+  body::before {
+    inset: 5px;
+    border-width: 1px;
+  }
+
+  #root {
+    min-height: calc(100vh - 36px);
+  }
+
+  .terminal-nav-shell {
+    gap: 8px;
+    padding: 8px;
+    flex-wrap: wrap;
+  }
+
+  .terminal-nav-prompt {
+    display: none;
   }
 }

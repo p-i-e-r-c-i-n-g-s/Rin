@@ -2,18 +2,25 @@ import { BrandLink, HeaderActions, Menu, NavBar } from "..";
 import { PreviewActions, PreviewBrand, PreviewCanvas, PreviewContent, PreviewNav } from "../preview-primitives";
 import type { HeaderLayoutDefinition } from "../layout-types";
 
-const PREVIEW_ITEMS = ["Home", "Timeline", "Moments"];
+const PREVIEW_ITEMS = ["Blog", "Timeline", "Tags"];
 
 export const classicLayoutDefinition: HeaderLayoutDefinition = {
   kind: "top",
   renderDesktop({ children, profile, siteConfig }) {
     return (
       <div className="hidden w-full items-center justify-between md:flex">
-        <BrandLink siteConfig={siteConfig} className="mr-8 hidden flex-row items-center md:flex" />
+        <BrandLink
+          siteConfig={siteConfig}
+          className="terminal-brand mr-6 hidden flex-row items-center md:flex"
+          titleClassName="terminal-brand-title"
+          descriptionClassName="terminal-brand-description"
+        />
         <div className="flex min-w-0 flex-1 items-center justify-center">
-          <div className="scrollbar-none min-w-0 max-w-full overflow-x-auto rounded-full bg-w px-2 shadow-xl shadow-light t-primary">
-            <div className="flex min-w-max flex-row items-center whitespace-nowrap">
-              <NavBar menu={false} itemClassName="whitespace-nowrap px-3 py-3 md:p-3 text-[15px]" />
+          <div className="terminal-nav-shell">
+            <div className="terminal-nav-links min-w-0 max-w-full">
+              <div className="flex min-w-0 flex-row flex-wrap items-center">
+                <NavBar menu={false} itemClassName="whitespace-nowrap px-2 py-2 md:p-2 text-[13px]" />
+              </div>
             </div>
           </div>
         </div>
@@ -28,13 +35,13 @@ export const classicLayoutDefinition: HeaderLayoutDefinition = {
     return (
       <div className="flex w-full flex-row items-center justify-center md:hidden">
         <div className="w-full flex-row items-center justify-center transition-all duration-500">
-          <div className="flex flex-row items-center rounded-full bg-w px-2 shadow-xl shadow-light t-primary">
+          <div className="terminal-nav-shell terminal-nav-shell-mobile">
             <BrandLink
               siteConfig={siteConfig}
               compact
               className="visible mr-auto flex flex-row items-center py-2 opacity-100 duration-300 md:hidden"
             />
-            <NavBar menu={false} />
+            <NavBar menu={false} itemClassName="px-2 py-2 text-xs" />
             <div className="ml-auto flex items-center gap-1">
               {children ? <div className="flex items-center text-sm t-primary">{children}</div> : null}
               <Menu profile={profile} />
