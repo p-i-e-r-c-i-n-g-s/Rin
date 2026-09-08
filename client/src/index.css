@@ -208,3 +208,144 @@ a.toc-link {
 .is-active-link::before {
   @apply bg-theme;
 }
+
+/* Pearcache CLI theme */
+:root {
+  color-scheme: dark;
+  --bg-base: #050505;
+  --text-phosphor: #00ff41;
+  --text-body: #e0e0e0;
+  --glass-bg: rgb(0 20 5 / 0.65);
+  --glass-border: rgb(0 255 65 / 0.3);
+  --link-hover: #ffffff;
+  --theme-rgb: 0 255 65;
+  --theme-hover-rgb: 0 204 52;
+  --theme-active-rgb: 0 153 39;
+  --rin-canvas-rgb: 5 5 5;
+  --rin-surface-rgb: 0 20 5;
+  --rin-surface-muted-rgb: 5 25 10;
+  --rin-surface-hover-rgb: 10 40 15;
+  --rin-surface-active-rgb: 15 55 20;
+  --rin-text-rgb: 224 224 224;
+  --rin-text-muted-rgb: 160 190 168;
+  --rin-border-rgb: 0 255 65;
+  --rin-radius-control: 0;
+  --rin-radius-surface: 2px;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-base);
+  background-image: radial-gradient(circle, rgb(0 255 65 / 0.05) 1px, transparent 1px);
+  background-size: 24px 24px;
+  color: var(--text-body);
+  font-family: "Fira Code", "VT323", "Courier New", monospace !important;
+  line-height: 1.6;
+}
+
+/* Keep shared surfaces readable without requiring every Tailwind card to change. */
+.bg-w,
+.bg-secondary,
+.border-card,
+article,
+.rin-modal-surface,
+.wmde-markdown,
+.w-md-editor {
+  background: var(--glass-bg) !important;
+  border: 1px solid var(--glass-border);
+  border-radius: 2px !important;
+  box-shadow: 0 4px 30px rgb(0 0 0 / 0.5);
+}
+
+.bg-w,
+.bg-secondary,
+.border-card,
+article {
+  padding: 24px;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  color: var(--text-phosphor);
+  font-weight: normal;
+  text-transform: lowercase;
+  text-wrap: balance;
+}
+
+h1::before {
+  content: "root@pearcache:\\~# ";
+  opacity: 0.7;
+}
+
+h2::before {
+  content: "\\~/ ";
+  opacity: 0.7;
+}
+
+a {
+  color: var(--text-phosphor);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--glass-border);
+  transition: color 0.2s ease-in-out, border-color 0.2s ease-in-out, text-shadow 0.2s ease-in-out;
+}
+
+a:hover,
+a:focus-visible {
+  color: var(--link-hover);
+  border-bottom: 1px solid var(--link-hover);
+  text-shadow: 0 0 8px rgb(0 255 65 / 0.4);
+}
+
+button,
+input,
+textarea,
+select {
+  background: rgb(0 0 0 / 0.5) !important;
+  color: var(--text-phosphor) !important;
+  border: 1px solid var(--text-phosphor) !important;
+  border-radius: 0 !important;
+  font-family: inherit;
+}
+
+button {
+  cursor: pointer;
+  transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
+}
+
+button:hover:not(:disabled),
+button:active:not(:disabled) {
+  background: var(--text-phosphor) !important;
+  color: var(--bg-base) !important;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--text-phosphor);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--text-phosphor);
+  color: var(--bg-base);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
