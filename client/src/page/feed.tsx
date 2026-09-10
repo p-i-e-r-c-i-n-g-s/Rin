@@ -188,8 +188,8 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
                 className="rounded-2xl bg-w m-2 px-6 py-4"
                 aria-label={feed.title ?? "Unnamed"}
               >
-                <div className="flex justify-between">
-                  <div>
+                <div className="flex min-w-0 justify-between gap-4">
+                  <div className="min-w-0 flex-1">
                     <div className="mt-1 mb-1 flex gap-1">
                       <p
                         className="text-gray-400 text-[12px]"
@@ -223,7 +223,7 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
                       </span>
                     </p>}
                     <div className="flex flex-row items-center">
-                      <h1 className="text-2xl font-bold t-primary break-all">
+                      <h1 className="text-2xl font-bold t-primary break-words">
                         {feed.title}
                       </h1>
                       <div className="flex-1 w-0" />

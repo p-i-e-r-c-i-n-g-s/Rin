@@ -172,8 +172,8 @@
     "title": "Error"
   },
   "feed_card": {
-    "published$time": "Published at {{time}}",
-    "updated$time": "Updated at {{time}}"
+    "published$time": "Published {{time}}",
+    "updated$time": "Updated {{time}}"
   },
   "footer": {
     "rss": "RSS Subscription Link"
