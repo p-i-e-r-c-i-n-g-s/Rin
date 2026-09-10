@@ -118,12 +118,12 @@ export function FeedCard({ id, title, avatar, draft, listed, top, summary, hasht
             ) : null}
             <div className={activeVariant === "editorial" ? "px-2 pb-2" : ""}>
                 <h1 className={styles.title}>{title}</h1>
-                <p className={`space-x-2 ${styles.meta}`}>
-                    <span title={new Date(createdAt).toLocaleString()}>
+                <p className={`flex flex-wrap gap-x-2 gap-y-0 ${styles.meta}`}>
+                    <span className="whitespace-nowrap" title={new Date(createdAt).toLocaleString()}>
                         {createdAt === updatedAt ? timeago(createdAt) : t('feed_card.published$time', { time: timeago(createdAt) })}
                     </span>
                     {createdAt !== updatedAt &&
-                        <span title={new Date(updatedAt).toLocaleString()}>
+                        <span className="whitespace-nowrap" title={new Date(updatedAt).toLocaleString()}>
                             {t('feed_card.updated$time', { time: timeago(updatedAt) })}
                         </span>
                     }
