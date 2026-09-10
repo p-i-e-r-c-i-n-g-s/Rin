@@ -182,8 +182,8 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
         )}
         {feed && !error && (
           <>
-            <div className="xl:w-64" />
-            <main className="wauto">
+            <div className="xl:w-56 shrink-0" />
+            <main className="wauto min-w-0 flex-1 max-w-[820px]">
               <article
                 className="rounded-2xl bg-w m-2 px-6 py-4"
                 aria-label={feed.title ?? "Unnamed"}
@@ -309,9 +309,9 @@ export function FeedPage({ id, TOC, clean }: { id: string, TOC: () => JSX.Elemen
               {feed && <Comments id={`${feed.id}`} />}
               <div className="h-16" />
             </main>
-            <div className="w-80 hidden lg:block relative">
+            <div className="w-72 hidden lg:block relative shrink-0">
               <div
-                className={`start-0 end-0 top-[5.5rem] sticky`}
+                className={`start-0 end-0 top-0 sticky mt-2`}
               >
                 <TOC />
               </div>

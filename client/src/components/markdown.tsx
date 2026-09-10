@@ -236,7 +236,7 @@ export function Markdown({ content }: { content: string }) {
             return (
               <code
                 {...rest}
-                className={`bg-[#eff1f3] dark:bg-[#4a5061] h-[24px] px-[4px] rounded-md mx-[2px] py-[2px] text-neutral-800 dark:text-neutral-300 ${className || ""
+                className={`terminal-inline-code h-[24px] px-[4px] rounded-md mx-[2px] py-[2px] ${className || ""
                   }`}
                 style={inlineCodeStyle}
               >
@@ -248,7 +248,7 @@ export function Markdown({ content }: { content: string }) {
         blockquote({ children, ...props }) {
           return (
             <blockquote
-              className="border-l-4 border-gray-300 dark:border-gray-500 pl-4 italic text-gray-500 dark:text-gray-400"
+              className="border-l-2 border-gray-300 dark:border-gray-500 pl-4 italic text-gray-500 dark:text-gray-400"
               {...props}
             >
               {children}

@@ -229,6 +229,9 @@ a.toc-link {
   --rin-text-rgb: 222 217 232;
   --rin-text-muted-rgb: 169 161 184;
   --rin-border-rgb: 240 179 90;
+  --matrix-green: #00ff41;
+  --matrix-green-soft: rgb(0 255 65 / 0.14);
+  --matrix-green-border: rgb(0 255 65 / 0.55);
   --rin-radius-control: 0;
   --rin-radius-surface: 2px;
 }
@@ -252,6 +255,9 @@ a.toc-link {
   --rin-text-rgb: 48 41 31;
   --rin-text-muted-rgb: 105 92 75;
   --rin-border-rgb: 139 79 18;
+  --matrix-green: #087f2b;
+  --matrix-green-soft: rgb(8 127 43 / 0.12);
+  --matrix-green-border: rgb(8 127 43 / 0.45);
 }
 
 html,
@@ -294,6 +300,20 @@ body::before {
   border-radius: 3px;
   background: var(--glass-bg);
   box-shadow: 0 0 24px rgb(0 0 0 / 0.24);
+}
+
+.terminal-toc {
+  border-color: var(--glass-border) !important;
+  transform: translateY(0);
+}
+
+.terminal-toc h2,
+.terminal-toc li.text-theme {
+  color: var(--matrix-green) !important;
+}
+
+.terminal-toc li:hover {
+  color: var(--matrix-green);
 }
 
 .terminal-nav-shell-mobile {
@@ -406,6 +426,23 @@ main,
 article,
 .wmde-markdown {
   color: var(--text-body);
+}
+
+.terminal-inline-code {
+  border: 1px solid var(--matrix-green-border);
+  background: var(--matrix-green-soft) !important;
+  color: var(--matrix-green) !important;
+  border-radius: 2px !important;
+  box-shadow: 0 0 10px rgb(0 255 65 / 0.08);
+}
+
+.toc-content blockquote {
+  border-color: var(--matrix-green) !important;
+  color: var(--matrix-green) !important;
+}
+
+.toc-content a {
+  color: var(--matrix-green);
 }
 
 main > div,

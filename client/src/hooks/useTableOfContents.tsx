@@ -89,7 +89,7 @@ const useTableOfContents = (selector: string) => {
     const TOC = useCallback(() => {
         const { tableOfContents, activeIndex, t } = tocStateRef.current
 
-        return <div className='rounded-2xl bg-w py-4 px-4 t-primary'>
+        return <div className='terminal-toc rounded-2xl bg-w py-4 px-4 t-primary'>
             <h2 className="text-lg font-bold">{t("index.title")}</h2>
             <ul className="max-h-[calc(100vh-10.25rem)] overflow-auto" style={{ scrollbarWidth: "none" }}>
                 {tableOfContents.length === 0 && <li>{t("index.empty.title")}</li>}
