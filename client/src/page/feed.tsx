@@ -368,9 +368,12 @@ function CommentInput({
   const profile = useContext(ProfileContext);
   const [, setLocation] = useLocation();
   const config = useContext(ClientConfigContext);
-  // guest comments enabled by default; admin can disable via client config `comment.guest.enabled=false`
+  // Guest comments are OFF unless `comment.guest.enabled` is explicitly true.
+  // This must agree with guestCommentsEnabled() in server/src/services/comments.ts,
+  // which is the authority -- the old default here was the opposite, so the form
+  // was offered by default while the server is the thing that decides.
   const rawGuest = config.get('comment.guest.enabled');
-  const guestEnabled = rawGuest !== false && rawGuest !== 'false';
+  const guestEnabled = rawGuest === true || rawGuest === 'true';
   function errorHumanize(error: string) {
     if (error === "Unauthorized") return t("login.required");
     else if (error === "Content is required") return t("comment.empty");

@@ -10,6 +10,7 @@ describe('CommentService', () => {
     let sqlite: Database;
     let env: Env;
     let app: Hono<{ Bindings: Env; Variables: Variables }>;
+    let clientConfig: any;
     const originalFetch = globalThis.fetch;
 
     beforeEach(async () => {
@@ -18,7 +19,14 @@ describe('CommentService', () => {
         sqlite = ctx.sqlite;
         env = ctx.env;
         app = ctx.app;
-        
+        clientConfig = ctx.clientConfig;
+
+        // Comments and guest comments are both OFF by default now, and the
+        // server enforces that. These tests are about what happens once they
+        // are switched on, so switch them on explicitly.
+        await clientConfig.set('comment.enabled', true);
+        await clientConfig.set('comment.guest.enabled', true);
+
         // Seed test data
         await seedTestData(sqlite);
     });
@@ -188,6 +196,51 @@ describe('CommentService', () => {
 
             const after = await (await app.request('/1', { method: 'GET' }, env)).json() as any[];
             expect(after.find((c: any) => c.guestName === 'Guest')).toBeDefined();
+        });
+
+        // The switch used to live only in the client, where it decided whether
+        // the form was drawn. These assert it now decides whether the write is
+        // accepted, which is the part that matters to anyone not using the form.
+        it('should refuse every comment when comments are disabled', async () => {
+            await clientConfig.set('comment.enabled', false);
+            const before = (sqlite.prepare(`SELECT COUNT(*) as n FROM comments`).get() as any).n;
+
+            const guest = await app.request('/1', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: 'x', guestName: 'Guest' }),
+            }, env);
+            expect(guest.status).toBe(403);
+
+            const signedIn = await app.request('/1', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer mock_token_1' },
+                body: JSON.stringify({ content: 'x' }),
+            }, env);
+            expect(signedIn.status).toBe(403);
+
+            // The fixture seeds comments, so "nothing was written" is a
+            // comparison against the starting count, not against zero.
+            const after = (sqlite.prepare(`SELECT COUNT(*) as n FROM comments`).get() as any).n;
+            expect(after).toBe(before);
+        });
+
+        it('should refuse guests but allow signed-in users when only guest comments are disabled', async () => {
+            await clientConfig.set('comment.guest.enabled', false);
+
+            const guest = await app.request('/1', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: 'x', guestName: 'Guest' }),
+            }, env);
+            expect(guest.status).toBe(403);
+
+            const signedIn = await app.request('/1', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer mock_token_1' },
+                body: JSON.stringify({ content: 'from a member' }),
+            }, env);
+            expect(signedIn.status).toBe(200);
         });
 
         it('should bound the size of an unauthenticated write', async () => {

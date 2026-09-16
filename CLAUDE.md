@@ -136,11 +136,39 @@ risk *today* only because that bucket already backs public
 `images.pearcache.com` — but it means **never put anything private in
 `pearcache-images`.** Not fixed; scope the prefix if that assumption changes.
 
-### OPEN, minor — upload parses before it authenticates
+### REAL, FIXED — upload parsed before it authenticated
 
-`server/src/services/storage.ts` calls `parseBody()` *then* checks
-`if (!uid) return 401`, so an unauthenticated request still gets its body
-parsed into memory. Reorder when touching that file.
+`server/src/services/storage.ts` called `parseBody()` *then* checked
+`if (!uid) return 401`, so an anonymous request got its whole multipart body
+buffered before being refused. The auth check now runs first.
+
+`key` and `file` were also asserted (`body.key as string`) rather than checked,
+so a malformed multipart body reached `key.includes(...)` and threw an uncaught
+`TypeError` **outside** the `try` below it — a 500 where 400 is correct. Both
+are validated now.
+
+### REAL, FIXED — the comment switches were decorative
+
+`comment.enabled` and `comment.guest.enabled` were read **only** by the client
+(`feed.tsx:538` and `:372`), where they decide whether the form is drawn.
+`POST /api/comment/:feed` checked neither. Turning comments off in Settings
+hid the form and left the endpoint accepting anything posted straight at it.
+
+This is the same shape as the `<input type="url">` that `safeWebsite()` had to
+re-check: **a control that only moves the UI is not a control.** When you find
+one config key read in the client, grep the server for it before believing it
+does anything.
+
+Both are enforced in `comments.ts` now and both **default to false** — comments
+are off unless deliberately switched on — and both fail closed if the config
+read throws. The client's guest default was flipped to match; it had been the
+opposite, offering a form the server would now refuse.
+
+Note the server default is the authority. `server/src/services/__tests__/comments.test.ts`
+switches both on in `beforeEach`, because those tests are about what happens
+once comments are enabled.
+
+### OPEN — `/blob/*` is unscoped
 
 ### Credentials
 
@@ -155,3 +183,23 @@ Credentials were never tested from a session — that is the owner's word, and
 the right way round.
 
 No secrets found in git history across the repo.
+
+### GitHub OAuth — supported in code, needs no change, but has one trap
+
+`RIN_GITHUB_CLIENT_ID` + `RIN_GITHUB_CLIENT_SECRET` as Worker secrets is all it
+takes; `hono-middleware.ts:81` builds the provider when both are present and
+leaves `oauth2` undefined otherwise. Scope is `read:user`. The callback route is
+`GET /user/github/callback` on the Hono app, which is mounted under `/api`, so
+the URL GitHub must be given is **`https://blog.pearcache.com/api/user/github/callback`**.
+
+**The trap is `user.ts:118`.** A GitHub login gets `permission: 0` unless the
+`users` table is **empty**, in which case it gets `permission: 1`. The
+password admin **is** a row (`auth.ts` inserts `openid: "admin"`,
+`permission: 1` on first successful password login), so on an existing blog the
+table is not empty and **signing in with GitHub produces an ordinary user, not
+an admin.** Promote it in D1 afterwards.
+
+Corollary worth knowing: there is no allowlist. Any GitHub account can sign in
+and get a `permission: 0` row. That is low risk — such a user can comment (and
+comments are off) and delete their own comments, nothing else — but it is not
+"only I can log in".

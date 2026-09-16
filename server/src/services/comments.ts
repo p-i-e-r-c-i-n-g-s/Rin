@@ -36,6 +36,30 @@ export function safeWebsite(raw: unknown): string {
     }
 }
 
+// `comment.enabled` and `comment.guest.enabled` were read ONLY by the client
+// (feed.tsx), where they decide whether the form is rendered. Turning comments
+// off in Settings therefore hid the form while POST /api/comment/:feed went on
+// accepting anything posted straight at it -- the same shape as the
+// <input type="url"> that safeWebsite() had to re-check below. A switch that
+// only moves the UI is not a switch.
+//
+// Default false: comments are OFF unless someone deliberately turns them on.
+async function commentsEnabled(clientConfig: any): Promise<boolean> {
+    try {
+        return await clientConfig.getOrDefault("comment.enabled", false);
+    } catch {
+        return false; // fail closed
+    }
+}
+
+async function guestCommentsEnabled(clientConfig: any): Promise<boolean> {
+    try {
+        return await clientConfig.getOrDefault("comment.guest.enabled", false);
+    } catch {
+        return false; // fail closed
+    }
+}
+
 // Guest comments are held for review by default. Set `comment.guest.approval`
 // to false to publish them on arrival (the upstream behaviour).
 async function requiresApproval(serverConfig: any): Promise<boolean> {
@@ -101,6 +125,12 @@ export function CommentService(): Hono {
         const serverConfig = c.get('serverConfig');
         const uid = c.get('uid');
         const feedId = parseInt(c.req.param('feed'));
+        const clientConfig = c.get('clientConfig');
+
+        if (!(await commentsEnabled(clientConfig))) {
+            return c.text('Comments are disabled', 403);
+        }
+
         const body = await profileAsync(c, 'comment_create_parse', () => c.req.json());
         const { content, guestName, guestEmail, guestWebsite } = body;
         
@@ -164,6 +194,10 @@ export function CommentService(): Hono {
         }
 
         // 游客评论
+        if (!(await guestCommentsEnabled(clientConfig))) {
+            return c.text('Guest comments are disabled', 403);
+        }
+
         if (!guestName || !guestName.trim()) {
             return c.text('Guest name is required', 400);
         }
