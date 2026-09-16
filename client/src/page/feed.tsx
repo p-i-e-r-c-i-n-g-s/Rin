@@ -504,8 +504,10 @@ type Comment = {
     permission: number | null;
   } | null;
   guestName?: string;
-  guestEmail?: string;
+  // guestEmail is intentionally absent: the server stops sending it.
   guestWebsite?: string;
+  // 0 while a guest comment is held for review. Only admins are ever sent these.
+  approved?: number;
 };
 
 function Comments({ id }: { id: string }) {
@@ -579,6 +581,20 @@ function CommentItem({
   const profile = useContext(ProfileContext);
   const commenterName = comment.user?.username || comment.guestName || t("anonymous");
   const commenterAvatar = comment.user?.avatar || "/avatar.png";
+  const pending = comment.approved === 0;
+
+  function approveComment() {
+    client.comment
+      .approve(comment.id)
+      .then(({ error }) => {
+        if (error) {
+          showAlert(error.value as string);
+        } else {
+          onRefresh();
+        }
+      });
+  }
+
   function deleteComment() {
     showConfirm(
       t("delete.comment.title"),
@@ -628,7 +644,23 @@ function CommentItem({
           </span>
         </div>
         <p className="break-words t-primary [overflow-wrap:anywhere]">{comment.content}</p>
-        <div className="flex flex-row justify-end">
+        <div className="flex flex-row justify-end items-center gap-2">
+          {pending && (
+            <>
+              <span className="mr-auto text-sm text-gray-400">
+                {t("comment.pending")}
+              </span>
+              {profile?.permission && (
+                <button
+                  onClick={approveComment}
+                  aria-label={t("comment.approve")}
+                  className="px-2 py bg-secondary rounded-full"
+                >
+                  <i className="ri-check-line t-secondary"></i>
+                </button>
+              )}
+            </>
+          )}
           {(profile?.permission || (comment.user && profile?.id == comment.user.id)) && (
             <Popup
               arrow={false}
