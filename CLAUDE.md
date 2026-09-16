@@ -203,3 +203,205 @@ Corollary worth knowing: there is no allowlist. Any GitHub account can sign in
 and get a `permission: 0` row. That is low risk — such a user can comment (and
 comments are off) and delete their own comments, nothing else — but it is not
 "only I can log in".
+
+## Dependabot review — 15 Sep 2026 (7 alerts: 1 high, 4 moderate, 2 low)
+
+One upgrade taken, one alert that is genuinely reachable and **not** fixed here,
+two that are not reachable at all, and one CI gate found to be decorative.
+
+`bun pm view` reports `drizzle-kit` latest as 0.31.10, so "fifteen minor
+versions behind" is about right for the orm; the kit had drifted further.
+
+### DISMISSED as unreachable, then upgraded anyway — drizzle-orm GHSA-gpj5-g38j-94v9
+
+CVE-2026-39356, High, `< 0.45.2`. The advisory is **not** about values: it is
+that `escapeName()` wrapped an identifier in quotes without doubling an
+embedded quote, so untrusted input reaching `sql.identifier()`, `.as()`, a
+dynamic alias or a CTE name can terminate the identifier and inject SQL.
+Its own "Affected components" note says applications using only static schema
+objects are unaffected.
+
+**This codebase has no such sink.** Across 229 `.ts`/`.tsx` files outside
+`node_modules`, `sql.identifier`, `.as(`, `alias(`, `$with` and `sql.raw`
+return **zero** matches. The grep was proved able to find things first — the
+same pipeline returns 23 files for `drizzle-orm` and 9 for `orderBy`. All 16
+`orderBy` call sites name a hardcoded column — every one of them contains a
+literal `desc(` or `asc(` on a schema column (`desc(feeds.createdAt)` and
+friends), with no line left over. `sql` is imported in exactly one file,
+`db/schema.ts`, for two constant ``sql`(unixepoch())` `` defaults.
+
+The only untrusted string that reaches a query is the search keyword
+(`GET /search/:keyword` → `searchFeedPage`). Compiled with `.toSQL()` against
+the real schema on 0.30.10, it lands in **bound parameters**:
+
+    ... where (("feeds"."title" like ? or "feeds"."content" like ? ...))
+    params: ["%x\" , (SELECT group_concat(name) FROM sqlite_master) AS \"z%", ...]
+
+Static identifiers, payload confined to `?`. A positive control in the same
+run proved the sink really is broken in the version this repo shipped —
+`sql.identifier()` with the same payload emitted
+
+    order by "x" , (SELECT group_concat(name) FROM sqlite_master) AS "z"
+
+which is live injection. On 0.45.2 the identical call emits
+
+    order by "x"" , (SELECT group_concat(name) FROM sqlite_master) AS ""z"
+
+one inert quoted identifier. So the library flaw was real and present, and the
+app never handed it anything. **Verified by running the query builder, not by
+reading the call sites** — this repo has already been burned once by a finding
+reasoned from a plugin list rather than a render site.
+
+Upgraded regardless: it removes a footgun for whoever adds dynamic sorting
+next, which is exactly the feature the advisory names.
+
+### The drizzle upgrade: 50 type errors that had nothing to do with drizzle
+
+PR #3 deferred this after measuring 0.45.2 turning `bun run check` from 0 to 50
+errors. Reproduced exactly: 28× `Cannot find module 'bun:test'`, 16× `bun:sqlite`,
+3× `global`, 2× `process`, 1× `Error.captureStackTrace`. **None mention
+drizzle's API.**
+
+`server/tsconfig.json` sets `"types": ["./worker-configuration.d.ts"]`, and
+naming `types` at all is an allowlist that switches off automatic `@types`
+inclusion. Bun's ambient types were never declared — they arrived as a side
+effect of drizzle 0.30's own `.d.ts` files referencing `bun-types`. 0.45 stopped
+referencing them, so the ambient declarations vanished. The upgrade did not
+break the types; it removed an accidental prop.
+
+**Fix is one entry:** `"bun"` added to that `types` array. `@types/bun` was
+already a devDependency, so nothing new was installed. Do not remove it —
+`bun run check` goes red.
+
+**`drizzle-kit` had to move too.** 0.21.4 refuses to run against orm 0.45.2 and
+exits 1 (`This version of drizzle-kit is outdated`), which breaks
+`bun run db:generate`. Bumped to ^0.31.10, which reads the schema and reports
+all 11 tables with their indexes and fks — incidentally a second, independent
+confirmation that the schema's object-returning extras callbacks
+(`(table) => ({ ... })`, eight of them) are still honoured in 0.45 and needed
+no migration.
+
+**Trap: `drizzle-kit generate` output is not this repo's migration path.** It
+writes `server/drizzle/`, which does not exist and is in no ignore list, and it
+generated a from-scratch `0000_*.sql` because it has no knowledge of the 13
+hand-written migrations in `server/sql/` that the CLI actually applies. That
+output was deleted, not committed. If you run `db:gen`, throw the result away
+or you will have two migration lineages and only one of them runs.
+
+### REACHABLE, shipped, NOT fixed — i18next-http-backend GHSA-q89c-q3h5-w34g
+
+The only one of the six non-drizzle alerts that touches deployed code with
+attacker-influencable input, and the reason "dev tooling, therefore harmless"
+is not a safe default answer.
+
+`i18next-http-backend@2.5.2` (vulnerable `< 3.0.5`) is a **runtime dependency**
+of `client`, and is present in the built client bundle. `client/src/app/bootstrap.ts`
+uses the exact vulnerable shape:
+
+    backend: { loadPath: "/locales/{{lng}}/{{ns}}.json" }
+    .use(LanguageDetector)          // no `detection` option -> defaults apply
+
+The installed detector's default order is
+`['querystring', 'cookie', 'localStorage', 'sessionStorage', 'navigator', 'htmlTag']`
+with `lookupQuerystring: 'lng'` — **querystring first**, so `?lng=` is the
+highest-priority source. The backend then does
+`services.interpolator.interpolate(loadPath, { lng, ns })` with no encoding and
+no normalisation. Resolved the way a browser resolves a relative `fetch`:
+
+    ?lng=en                  -> /locales/en/translation.json
+    ?lng=../..               -> /translation.json            (escapes /locales/)
+    ?lng=../../api/comment/1 -> /api/comment/1/translation.json
+
+**Bounded, though.** Because `loadPath` starts with a literal `/locales/`, no
+payload tried produced an off-origin URL — this is same-origin path confusion,
+not remote script loading. Weaponising it needs a same-origin endpoint serving
+attacker-controlled JSON shaped like a translation map; `/api/comment/:feed`
+returns an array, so a victim mostly gets missing keys. Worth noting
+`interpolation: { escapeValue: false }` is set, which is normal under React but
+removes one incidental mitigation.
+
+**Left for its own change** because 2.5.2 → 3.0.5 is a major bump on a shipped
+client dependency. The cheaper, version-independent fix is to stop passing
+untrusted input to the URL at all: there are only four locales on disk (`en`,
+`ja`, `zh-CN`, `zh-TW`), so an allowlist — `supportedLngs` plus a `loadPath`
+function that rejects anything not in it — closes this whichever version is
+installed. Prefer that to the bump alone.
+
+### NOT REACHABLE — @cloudflare/vite-plugin GHSA-4pfg-2mw5-f8jx
+
+Moderate, `< 1.6.0`, "exposes secrets over the built-in dev server". The plugin
+is a devDependency of `client` at `^0.1.1` and is **never imported**: across 400
+non-`node_modules` files it appears only in `client/package.json`.
+`client/vite.config.ts` loads `react()` and `visualizer()` and nothing else, so
+the plugin's dev server never runs. Positive control: the same grep finds
+`@vitejs/plugin-react-swc` in both `package.json` and `vite.config.ts`.
+
+Zero occurrences in the deployed worker bundle.
+
+**The right fix is deletion, not a 0.1 → 1.6 major upgrade.** It is dead weight
+that costs a recurring alert. Not removed here only because it is outside this
+change's scope.
+
+### NOT REACHABLE — turbo GHSA-hcf7-66rw-9f5r (moderate) and GHSA-3qcw-2rhx-2726 (low)
+
+Four alerts, not four problems: two advisories × two directories, because
+`turbo` is declared in both root `package.json` and `client/package.json` at
+`^1.13.3` (1.13.4 installed, in range for both).
+
+- **Login callback CSRF/session fixation** needs `turbo login` to be run. There
+  is no `turbo login` or `turbo link` anywhere in the repo, no `remoteCache`
+  or `teamId` in `turbo.json`, and no `.turbo/config.json`. No remote cache is
+  configured, so the login flow is never exercised.
+- **Local code execution during Yarn Berry detection** needs Yarn Berry. There
+  is no `.yarn/`, no `.yarnrc.yml`, no `.pnp.cjs` and no `yarn.lock`; the only
+  lockfile is `bun.lock` and `packageManager` is `bun@1.3.13`. Both are
+  local-developer risks in any case, not site risks.
+
+Verified against the built artifacts rather than argued from `devDependencies`:
+the deployed worker (`dist/server/_worker.js`) contains **0** occurrences of
+`turbo`, `i18next` and `vite-plugin`, and 217 of `drizzle`. The client bundle's
+three `turbo` hits are `gpt-4-turbo`, `gpt-3.5-turbo` and `glm-3-turbo` in an
+AI model list — a substring, not the build tool.
+
+Turbo does emit a real warning on every run —
+`could not resolve workspaces: unable to parse ... "client@^workspace:client"` —
+because turbo 1.13 tries to read `bun.lock` with its yarn-lockfile parser. It
+is noisy and unrelated to either advisory; turbo 2.x is where that is fixed.
+
+### `bun run format:check` is a gate that cannot fail
+
+Found while establishing a baseline. `format:check` is declared in
+`turbo.json`'s pipeline and in root `package.json` as `turbo format:check`, but
+**no workspace defines the script**, so it resolves to nothing:
+
+    Tasks:    0 successful, 0 total
+    exit 0
+
+`ci.yml` runs it as one of its two gates. It has never checked formatting and
+cannot report a failure — the exact shape this account has been bitten by
+before (a skipped job rendering green). PR #3's description cites
+"`bun run format:check` exits 0" as evidence; it exits 0 unconditionally.
+Either give a workspace a real `format:check` script or drop the gate, but do
+not read it as formatting having been verified.
+
+### How this change was verified
+
+Every number below is from a run on this branch, rebased onto `343837c`.
+`bun run check` is always `--force`, because turbo will otherwise replay a
+cached green (`FULL TURBO`) and a cached pass is not a run.
+
+| gate | before | after |
+|---|---|---|
+| `bun run check --force` | exit 0, 0 TS errors | exit 0, 0 TS errors |
+| `bun run test:server` | 319 pass / 0 fail | **319 pass / 0 fail** |
+| `bun run test:client` | 32 pass / 0 fail | 32 pass / 0 fail |
+| `bun run check` in `server/` | exit 0 | exit 0 |
+| `bun run build:server` | exit 0 | exit 0 |
+
+Note the baseline was taken twice. Measured first against `755b51b`, where the
+server suite is **308** tests; PR #5 merged mid-change and took main to
+`343837c`, where it is **319**. If a future session reads a count here that
+does not match, check which commit main is on before assuming a test was lost.
+
+Local bun is 1.4.0; `ci.yml` pins 1.3.13. Nothing observed depended on the
+difference, but it is unverified on the CI version until CI runs.
