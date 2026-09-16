@@ -362,6 +362,11 @@ class CommentAPI {
   async delete(id: number): Promise<ApiResponse<void>> {
     return this.http.delete<void>(`/api/comment/${id}`);
   }
+
+  // POST /api/comment/:id/approve  (admin only)
+  async approve(id: number): Promise<ApiResponse<void>> {
+    return this.http.post<void>(`/api/comment/${id}/approve`);
+  }
 }
 
 /**

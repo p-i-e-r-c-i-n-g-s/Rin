@@ -103,7 +103,9 @@
     "guest_name_required": "Guest name is required",
     "guest_name_placeholder": "Name (required)",
     "guest_email_placeholder": "Email (optional)",
-    "guest_website_placeholder": "Website (optional)"
+    "guest_website_placeholder": "Website (optional)",
+    "pending": "Awaiting review",
+    "approve": "Approve comment"
   },
   "comparison": "Comparison",
   "confirm": "Confirm",

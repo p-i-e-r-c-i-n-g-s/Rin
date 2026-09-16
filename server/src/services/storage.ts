@@ -16,15 +16,29 @@ export function StorageService(): Hono {
     app.post('/', async (c: AppContext) => {
         const uid = c.get('uid');
         const env = c.get('env');
-        
-        const body = await profileAsync(c, 'storage_parse', () => c.req.parseBody());
-        const key = body.key as string;
-        const file = body.file as File;
-        
+
+        // Authorise BEFORE touching the body. parseBody() reads the whole
+        // multipart upload into memory, so checking uid afterwards meant an
+        // anonymous request still got a file buffered on our side before being
+        // told 401 -- free work for anyone who wanted to spend it.
         if (!uid) {
             return c.text('Unauthorized', 401);
         }
-        
+
+        const body = await profileAsync(c, 'storage_parse', () => c.req.parseBody());
+        const key = body.key;
+        const file = body.file;
+
+        // key and file were previously asserted rather than checked, so a
+        // malformed multipart body reached key.includes(...) and threw an
+        // uncaught TypeError outside the try below -- a 500 where 400 is right.
+        if (typeof key !== 'string' || !key) {
+            return c.text('key is required', 400);
+        }
+        if (!(file instanceof File)) {
+            return c.text('file is required', 400);
+        }
+
         const suffix = key.includes(".") ? key.split('.').pop() : "";
         const fileBuffer = await profileAsync(c, 'storage_file_buffer', () => file.arrayBuffer());
         const hashArray = await profileAsync(c, 'storage_hash', () => crypto.subtle.digest(

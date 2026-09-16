@@ -10,6 +10,7 @@ describe('CommentService', () => {
     let sqlite: Database;
     let env: Env;
     let app: Hono<{ Bindings: Env; Variables: Variables }>;
+    let clientConfig: any;
     const originalFetch = globalThis.fetch;
 
     beforeEach(async () => {
@@ -18,7 +19,14 @@ describe('CommentService', () => {
         sqlite = ctx.sqlite;
         env = ctx.env;
         app = ctx.app;
-        
+        clientConfig = ctx.clientConfig;
+
+        // Comments and guest comments are both OFF by default now, and the
+        // server enforces that. These tests are about what happens once they
+        // are switched on, so switch them on explicitly.
+        await clientConfig.set('comment.enabled', true);
+        await clientConfig.set('comment.guest.enabled', true);
+
         // Seed test data
         await seedTestData(sqlite);
     });
@@ -156,8 +164,7 @@ describe('CommentService', () => {
             expect(res.status).toBe(400);
         });
 
-        it('should return guest comments with user: null in list', async () => {
-            // Create a guest comment first
+        it('should hold a guest comment for review, then show it to the public once approved', async () => {
             const createRes = await app.request('/1', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -165,13 +172,178 @@ describe('CommentService', () => {
             }, env);
             expect(createRes.status).toBe(200);
 
-            const res = await app.request('/1', { method: 'GET' }, env);
-            expect(res.status).toBe(200);
-            const data = await res.json() as any[];
-            const guestComment = data.find((c: any) => c.guestName === 'Guest');
-            expect(guestComment).toBeDefined();
-            expect(guestComment.user).toBeNull();
-            expect(guestComment.content).toBe('Hi from guest');
+            // Anonymous reader: not visible yet.
+            const anon = await (await app.request('/1', { method: 'GET' }, env)).json() as any[];
+            expect(anon.find((c: any) => c.guestName === 'Guest')).toBeUndefined();
+
+            // Admin: visible, flagged pending, so there is something to act on.
+            const asAdmin = await (await app.request('/1', {
+                method: 'GET',
+                headers: { 'Authorization': 'Bearer mock_token_3' },
+            }, env)).json() as any[];
+            const held = asAdmin.find((c: any) => c.guestName === 'Guest');
+            expect(held).toBeDefined();
+            expect(held.approved).toBe(0);
+            expect(held.user).toBeNull();
+            expect(held.content).toBe('Hi from guest');
+
+            // Approve, and it reaches the public list.
+            const approveRes = await app.request(`/${held.id}/approve`, {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer mock_token_3' },
+            }, env);
+            expect(approveRes.status).toBe(200);
+
+            const after = await (await app.request('/1', { method: 'GET' }, env)).json() as any[];
+            expect(after.find((c: any) => c.guestName === 'Guest')).toBeDefined();
+        });
+
+        // The switch used to live only in the client, where it decided whether
+        // the form was drawn. These assert it now decides whether the write is
+        // accepted, which is the part that matters to anyone not using the form.
+        it('should refuse every comment when comments are disabled', async () => {
+            await clientConfig.set('comment.enabled', false);
+            const before = (sqlite.prepare(`SELECT COUNT(*) as n FROM comments`).get() as any).n;
+
+            const guest = await app.request('/1', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: 'x', guestName: 'Guest' }),
+            }, env);
+            expect(guest.status).toBe(403);
+
+            const signedIn = await app.request('/1', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer mock_token_1' },
+                body: JSON.stringify({ content: 'x' }),
+            }, env);
+            expect(signedIn.status).toBe(403);
+
+            // The fixture seeds comments, so "nothing was written" is a
+            // comparison against the starting count, not against zero.
+            const after = (sqlite.prepare(`SELECT COUNT(*) as n FROM comments`).get() as any).n;
+            expect(after).toBe(before);
+        });
+
+        it('should refuse guests but allow signed-in users when only guest comments are disabled', async () => {
+            await clientConfig.set('comment.guest.enabled', false);
+
+            const guest = await app.request('/1', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: 'x', guestName: 'Guest' }),
+            }, env);
+            expect(guest.status).toBe(403);
+
+            const signedIn = await app.request('/1', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer mock_token_1' },
+                body: JSON.stringify({ content: 'from a member' }),
+            }, env);
+            expect(signedIn.status).toBe(200);
+        });
+
+        it('should bound the size of an unauthenticated write', async () => {
+            const res = await app.request('/1', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: 'x'.repeat(10_001), guestName: 'Flooder' }),
+            }, env);
+            expect(res.status).toBe(400);
+
+            const stored = sqlite.prepare(
+                `SELECT COUNT(*) as n FROM comments WHERE guest_name = 'Flooder'`
+            ).get() as any;
+            expect(stored.n).toBe(0);
+        });
+
+        it('should refuse approval from a non-admin', async () => {
+            await app.request('/1', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: 'spam', guestName: 'Nobody' }),
+            }, env);
+            const row = sqlite.prepare(
+                `SELECT id FROM comments WHERE guest_name = 'Nobody'`
+            ).get() as any;
+
+            const anon = await app.request(`/${row.id}/approve`, { method: 'POST' }, env);
+            expect(anon.status).toBe(403);
+
+            const plainUser = await app.request(`/${row.id}/approve`, {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer mock_token_1' },
+            }, env);
+            expect(plainUser.status).toBe(403);
+
+            // Still held.
+            const check = sqlite.prepare(
+                `SELECT approved FROM comments WHERE id = ?`
+            ).get(row.id) as any;
+            expect(check.approved).toBe(0);
+        });
+
+        it('should strip a javascript: website rather than storing it', async () => {
+            // The client sends type="url", but a direct POST does not have to.
+            for (const hostile of [
+                'javascript:alert(1)',
+                '  JaVaScRiPt:alert(1)',
+                'java\tscript:alert(1)',
+                'data:text/html,<script>alert(1)</script>',
+                'vbscript:msgbox(1)',
+            ]) {
+                const res = await app.request('/1', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        content: 'x', guestName: `H${hostile.length}`, guestWebsite: hostile,
+                    }),
+                }, env);
+                expect(res.status).toBe(200);
+            }
+
+            const rows = sqlite.prepare(
+                `SELECT guest_website FROM comments WHERE guest_website != ''`
+            ).all() as any[];
+            for (const r of rows) {
+                expect(r.guest_website.toLowerCase()).toMatch(/^https?:\/\//);
+            }
+        });
+
+        it('should keep an ordinary website, adding a scheme when absent', async () => {
+            await app.request('/1', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: 'x', guestName: 'Bare', guestWebsite: 'example.com' }),
+            }, env);
+            const row = sqlite.prepare(
+                `SELECT guest_website FROM comments WHERE guest_name = 'Bare'`
+            ).get() as any;
+            expect(row.guest_website).toBe('https://example.com');
+        });
+
+        it('should not publish guest email addresses in the comment list', async () => {
+            await app.request('/1', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    content: 'x', guestName: 'Emailer', guestEmail: 'private@example.com',
+                }),
+            }, env);
+
+            const asAdmin = await (await app.request('/1', {
+                method: 'GET',
+                headers: { 'Authorization': 'Bearer mock_token_3' },
+            }, env)).json() as any[];
+            const row = asAdmin.find((c: any) => c.guestName === 'Emailer');
+            expect(row).toBeDefined();
+            expect(row.guestEmail).toBeUndefined();
+
+            // ...but it is still stored, for the admin's webhook.
+            const stored = sqlite.prepare(
+                `SELECT guest_email FROM comments WHERE guest_name = 'Emailer'`
+            ).get() as any;
+            expect(stored.guest_email).toBe('private@example.com');
         });
 
         it('should return 400 when not authenticated and guest name missing', async () => {
