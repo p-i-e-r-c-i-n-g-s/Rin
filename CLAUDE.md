@@ -430,13 +430,30 @@ request, not once. #3 and #5 both merged without CI.
 so **neither of the two obvious checks reveals this.** You have to ask for the
 run count.
 
-**Most likely cause, not verified from the API:** this repository is a fork
-(`isFork: true`), and GitHub disables workflows in a fork until the owner
-enables them once in the Actions tab. The per-workflow `state: active` field
-does not reflect that gate, which is exactly why the two checks above look
-healthy. Fixing it is a click in **Actions → "I understand my workflows, go
-ahead and enable them"**; if that banner is absent, check Settings → Actions →
-General.
+**The fork-gate explanation is wrong.** It was the first guess — GitHub does
+disable workflows in a fork until the owner enables them once — and it was
+checked and disproven the same day:
+
+- The Actions tab carries **no fork banner** and no "I understand my workflows"
+  prompt. Looked at in a real browser, not inferred.
+- Workflows report `state: active`, not `disabled_fork`, which is the state that
+  gate actually produces.
+- Settings → Actions → General has **"Allow all actions and reusable
+  workflows"** selected, and the repo is `archived: false`, `disabled: false`,
+  public.
+- `ci.yml` has been on `main` since **6 May 2026**, inherited from upstream, so
+  this is not a workflow that arrived after the events.
+- The events definitely reached GitHub: `/events` records
+  `PushEvent refs/heads/main` for #5's merge, plus `PullRequestEvent`s for #6
+  and #7. `ci.yml` triggers on both.
+
+So every surface GitHub exposes says Actions are enabled, permissive and
+correctly triggered, and no run is created anyway. **Cause unknown.** Tried and
+did not fix it: re-asserting `PUT /actions/permissions`, and a full
+disable → enable toggle of repository Actions. The next step is GitHub Support,
+because there is nothing left in the repository to change.
+
+Do not re-derive the fork theory from `isFork: true`. It has been checked.
 
 Two consequences worth stating plainly:
 
@@ -451,3 +468,33 @@ This outranks the `DEPLOY_ENABLED` hazard recorded in the ears repo: there, a
 misconfigured gate rendered green. Here the gates do not run, and a PR shows
 "no checks reported", which is easy to read as "not finished yet" rather than
 "never configured to run".
+
+### When Actions do start running, merging becomes deploying
+
+Worth knowing before anyone fixes the above, because it changes what a merge
+means:
+
+- `build.yml` runs on push **and** pull request to `main`.
+- `deploy.yml` triggers on `workflow_run: workflows: ["Build"], types:
+  [completed]` with **no branch filter** — its only guard is
+  `conclusion == 'success'`.
+- `prepare` then reads the build's ref: `refs/heads/main` sets
+  `is_production=true`, anything else `false`, and the `deploy` job picks its
+  environment from that. So a PR build targets `preview` and **a merge to main
+  targets `production`.**
+
+There are **no environments configured and no protection rules**, so nothing
+would ask for approval.
+
+**It would fail rather than deploy, though.** The repository has **zero Actions
+secrets**, and `deploy.yml` needs `CLOUDFLARE_API_TOKEN`,
+`CLOUDFLARE_ACCOUNT_ID`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD` and
+the `S3_*` pair. So this deploy path has never been functional, and could not
+have been even if Actions ran — **blog.pearcache.com is not deployed by this
+workflow.** Whatever does deploy it (Cloudflare's own Git integration, or a
+hand-run `wrangler deploy`) is not visible in this repository, which is the same
+trap the ears repo records under its two-deploy-paths note: config describes
+intent, and only a run describes behaviour.
+
+`ci.yml` and `test.yml` reference no secrets at all, so the gates themselves
+would run clean. The deploy chain is the only part that would go red.
