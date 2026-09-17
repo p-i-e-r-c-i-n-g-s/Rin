@@ -6,8 +6,15 @@
       "ESNext",
       "DOM"
     ],
+    // "types" is an allowlist: naming it at all switches off automatic @types
+    // inclusion. "bun" must therefore be explicit. It used to arrive by
+    // accident, as a transitive reference from drizzle-orm 0.30's own .d.ts
+    // files; 0.45 stopped referencing bun-types and 50 ambient-type errors
+    // appeared (bun:test, bun:sqlite, global, process). Nothing to do with
+    // drizzle's API. Do not remove "bun" -- `bun run check` goes red.
     "types": [
-      "./worker-configuration.d.ts"
+      "./worker-configuration.d.ts",
+      "bun"
     ],
     "moduleDetection": "force",
     "jsx": "react-jsx",

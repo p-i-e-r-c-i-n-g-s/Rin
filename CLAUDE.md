@@ -203,3 +203,345 @@ Corollary worth knowing: there is no allowlist. Any GitHub account can sign in
 and get a `permission: 0` row. That is low risk — such a user can comment (and
 comments are off) and delete their own comments, nothing else — but it is not
 "only I can log in".
+
+## Dependabot review — 15 Sep 2026 (7 alerts: 1 high, 4 moderate, 2 low)
+
+One upgrade taken, one alert that is genuinely reachable and **not** fixed here,
+two that are not reachable at all, and one CI gate found to be decorative.
+
+`bun pm view` reports `drizzle-kit` latest as 0.31.10, so "fifteen minor
+versions behind" is about right for the orm; the kit had drifted further.
+
+### DISMISSED as unreachable, then upgraded anyway — drizzle-orm GHSA-gpj5-g38j-94v9
+
+CVE-2026-39356, High, `< 0.45.2`. The advisory is **not** about values: it is
+that `escapeName()` wrapped an identifier in quotes without doubling an
+embedded quote, so untrusted input reaching `sql.identifier()`, `.as()`, a
+dynamic alias or a CTE name can terminate the identifier and inject SQL.
+Its own "Affected components" note says applications using only static schema
+objects are unaffected.
+
+**This codebase has no such sink.** Across 229 `.ts`/`.tsx` files outside
+`node_modules`, `sql.identifier`, `.as(`, `alias(`, `$with` and `sql.raw`
+return **zero** matches. The grep was proved able to find things first — the
+same pipeline returns 23 files for `drizzle-orm` and 9 for `orderBy`. All 16
+`orderBy` call sites name a hardcoded column — every one of them contains a
+literal `desc(` or `asc(` on a schema column (`desc(feeds.createdAt)` and
+friends), with no line left over. `sql` is imported in exactly one file,
+`db/schema.ts`, for two constant ``sql`(unixepoch())` `` defaults.
+
+The only untrusted string that reaches a query is the search keyword
+(`GET /search/:keyword` → `searchFeedPage`). Compiled with `.toSQL()` against
+the real schema on 0.30.10, it lands in **bound parameters**:
+
+    ... where (("feeds"."title" like ? or "feeds"."content" like ? ...))
+    params: ["%x\" , (SELECT group_concat(name) FROM sqlite_master) AS \"z%", ...]
+
+Static identifiers, payload confined to `?`. A positive control in the same
+run proved the sink really is broken in the version this repo shipped —
+`sql.identifier()` with the same payload emitted
+
+    order by "x" , (SELECT group_concat(name) FROM sqlite_master) AS "z"
+
+which is live injection. On 0.45.2 the identical call emits
+
+    order by "x"" , (SELECT group_concat(name) FROM sqlite_master) AS ""z"
+
+one inert quoted identifier. So the library flaw was real and present, and the
+app never handed it anything. **Verified by running the query builder, not by
+reading the call sites** — this repo has already been burned once by a finding
+reasoned from a plugin list rather than a render site.
+
+Upgraded regardless: it removes a footgun for whoever adds dynamic sorting
+next, which is exactly the feature the advisory names.
+
+### The drizzle upgrade: 50 type errors that had nothing to do with drizzle
+
+PR #3 deferred this after measuring 0.45.2 turning `bun run check` from 0 to 50
+errors. Reproduced exactly: 28× `Cannot find module 'bun:test'`, 16× `bun:sqlite`,
+3× `global`, 2× `process`, 1× `Error.captureStackTrace`. **None mention
+drizzle's API.**
+
+`server/tsconfig.json` sets `"types": ["./worker-configuration.d.ts"]`, and
+naming `types` at all is an allowlist that switches off automatic `@types`
+inclusion. Bun's ambient types were never declared — they arrived as a side
+effect of drizzle 0.30's own `.d.ts` files referencing `bun-types`. 0.45 stopped
+referencing them, so the ambient declarations vanished. The upgrade did not
+break the types; it removed an accidental prop.
+
+**Fix is one entry:** `"bun"` added to that `types` array. `@types/bun` was
+already a devDependency, so nothing new was installed. Do not remove it —
+`bun run check` goes red.
+
+**`drizzle-kit` had to move too.** 0.21.4 refuses to run against orm 0.45.2 and
+exits 1 (`This version of drizzle-kit is outdated`), which breaks
+`bun run db:generate`. Bumped to ^0.31.10, which reads the schema and reports
+all 11 tables with their indexes and fks — incidentally a second, independent
+confirmation that the schema's object-returning extras callbacks
+(`(table) => ({ ... })`, eight of them) are still honoured in 0.45 and needed
+no migration.
+
+**Trap: `drizzle-kit generate` output is not this repo's migration path.** It
+writes `server/drizzle/`, which does not exist and is in no ignore list, and it
+generated a from-scratch `0000_*.sql` because it has no knowledge of the 13
+hand-written migrations in `server/sql/` that the CLI actually applies. That
+output was deleted, not committed. If you run `db:gen`, throw the result away
+or you will have two migration lineages and only one of them runs.
+
+### REACHABLE, shipped, NOT fixed — i18next-http-backend GHSA-q89c-q3h5-w34g
+
+The only one of the six non-drizzle alerts that touches deployed code with
+attacker-influencable input, and the reason "dev tooling, therefore harmless"
+is not a safe default answer.
+
+`i18next-http-backend@2.5.2` (vulnerable `< 3.0.5`) is a **runtime dependency**
+of `client`, and is present in the built client bundle. `client/src/app/bootstrap.ts`
+uses the exact vulnerable shape:
+
+    backend: { loadPath: "/locales/{{lng}}/{{ns}}.json" }
+    .use(LanguageDetector)          // no `detection` option -> defaults apply
+
+The installed detector's default order is
+`['querystring', 'cookie', 'localStorage', 'sessionStorage', 'navigator', 'htmlTag']`
+with `lookupQuerystring: 'lng'` — **querystring first**, so `?lng=` is the
+highest-priority source. The backend then does
+`services.interpolator.interpolate(loadPath, { lng, ns })` with no encoding and
+no normalisation. Resolved the way a browser resolves a relative `fetch`:
+
+    ?lng=en                  -> /locales/en/translation.json
+    ?lng=../..               -> /translation.json            (escapes /locales/)
+    ?lng=../../api/comment/1 -> /api/comment/1/translation.json
+
+**Bounded, though.** Because `loadPath` starts with a literal `/locales/`, no
+payload tried produced an off-origin URL — this is same-origin path confusion,
+not remote script loading. Weaponising it needs a same-origin endpoint serving
+attacker-controlled JSON shaped like a translation map; `/api/comment/:feed`
+returns an array, so a victim mostly gets missing keys. Worth noting
+`interpolation: { escapeValue: false }` is set, which is normal under React but
+removes one incidental mitigation.
+
+**Left for its own change** because 2.5.2 → 3.0.5 is a major bump on a shipped
+client dependency. The cheaper, version-independent fix is to stop passing
+untrusted input to the URL at all: there are only four locales on disk (`en`,
+`ja`, `zh-CN`, `zh-TW`), so an allowlist — `supportedLngs` plus a `loadPath`
+function that rejects anything not in it — closes this whichever version is
+installed. Prefer that to the bump alone.
+
+### NOT REACHABLE — @cloudflare/vite-plugin GHSA-4pfg-2mw5-f8jx
+
+Moderate, `< 1.6.0`, "exposes secrets over the built-in dev server". The plugin
+is a devDependency of `client` at `^0.1.1` and is **never imported**: across 400
+non-`node_modules` files it appears only in `client/package.json`.
+`client/vite.config.ts` loads `react()` and `visualizer()` and nothing else, so
+the plugin's dev server never runs. Positive control: the same grep finds
+`@vitejs/plugin-react-swc` in both `package.json` and `vite.config.ts`.
+
+Zero occurrences in the deployed worker bundle.
+
+**The right fix is deletion, not a 0.1 → 1.6 major upgrade.** It is dead weight
+that costs a recurring alert. Not removed here only because it is outside this
+change's scope.
+
+### NOT REACHABLE — turbo GHSA-hcf7-66rw-9f5r (moderate) and GHSA-3qcw-2rhx-2726 (low)
+
+Four alerts, not four problems: two advisories × two directories, because
+`turbo` is declared in both root `package.json` and `client/package.json` at
+`^1.13.3` (1.13.4 installed, in range for both).
+
+- **Login callback CSRF/session fixation** needs `turbo login` to be run. There
+  is no `turbo login` or `turbo link` anywhere in the repo, no `remoteCache`
+  or `teamId` in `turbo.json`, and no `.turbo/config.json`. No remote cache is
+  configured, so the login flow is never exercised.
+- **Local code execution during Yarn Berry detection** needs Yarn Berry. There
+  is no `.yarn/`, no `.yarnrc.yml`, no `.pnp.cjs` and no `yarn.lock`; the only
+  lockfile is `bun.lock` and `packageManager` is `bun@1.3.13`. Both are
+  local-developer risks in any case, not site risks.
+
+Verified against the built artifacts rather than argued from `devDependencies`:
+the deployed worker (`dist/server/_worker.js`) contains **0** occurrences of
+`turbo`, `i18next` and `vite-plugin`, and 217 of `drizzle`. The client bundle's
+three `turbo` hits are `gpt-4-turbo`, `gpt-3.5-turbo` and `glm-3-turbo` in an
+AI model list — a substring, not the build tool.
+
+Turbo does emit a real warning on every run —
+`could not resolve workspaces: unable to parse ... "client@^workspace:client"` —
+because turbo 1.13 tries to read `bun.lock` with its yarn-lockfile parser. It
+is noisy and unrelated to either advisory; turbo 2.x is where that is fixed.
+
+### `bun run format:check` is a gate that cannot fail
+
+Found while establishing a baseline. `format:check` is declared in
+`turbo.json`'s pipeline and in root `package.json` as `turbo format:check`, but
+**no workspace defines the script**, so it resolves to nothing:
+
+    Tasks:    0 successful, 0 total
+    exit 0
+
+`ci.yml` runs it as one of its two gates. It has never checked formatting and
+cannot report a failure — the exact shape this account has been bitten by
+before (a skipped job rendering green). PR #3's description cites
+"`bun run format:check` exits 0" as evidence; it exits 0 unconditionally.
+Either give a workspace a real `format:check` script or drop the gate, but do
+not read it as formatting having been verified.
+
+### How this change was verified
+
+Every number below is from a run on this branch, rebased onto `343837c`.
+`bun run check` is always `--force`, because turbo will otherwise replay a
+cached green (`FULL TURBO`) and a cached pass is not a run.
+
+| gate | before | after |
+|---|---|---|
+| `bun run check --force` | exit 0, 0 TS errors | exit 0, 0 TS errors |
+| `bun run test:server` | 319 pass / 0 fail | **319 pass / 0 fail** |
+| `bun run test:client` | 32 pass / 0 fail | 32 pass / 0 fail |
+| `bun run check` in `server/` | exit 0 | exit 0 |
+| `bun run build:server` | exit 0 | exit 0 |
+
+Note the baseline was taken twice. Measured first against `755b51b`, where the
+server suite is **308** tests; PR #5 merged mid-change and took main to
+`343837c`, where it is **319**. If a future session reads a count here that
+does not match, check which commit main is on before assuming a test was lost.
+
+Local bun is 1.4.0; `ci.yml` pins 1.3.13. Nothing observed depended on the
+difference, but it is unverified on the CI version until CI runs.
+
+## CI had never run on this fork — fixed 16 Sep 2026
+
+Found while checking the PRs for the Dependabot work above, and **resolved**.
+Before the fix, no workflow in `.github/workflows/` had ever executed:
+
+| workflow | state | runs, all time (before) |
+|---|---|---|
+| `CI` (`ci.yml`) | active | **0** |
+| `CI - Test and Type Check` (`test.yml`) | active | **0** |
+| `Build` (`build.yml`) | active | **0** |
+| `Deploy` (`deploy.yml`) | active | **0** |
+
+The repository's entire Actions history was **2 runs**, both GitHub-managed
+`Dependabot Updates`. #3 and #5 merged without CI.
+
+### What fixed it: toggling repository Actions off and on
+
+    gh api -X PUT repos/<owner>/<repo>/actions/permissions -F enabled=false
+    gh api -X PUT repos/<owner>/<repo>/actions/permissions -F enabled=true -f allowed_actions=all
+
+The next `pull_request` event after that produced runs immediately — `CI`,
+`CI - Test and Type Check` and `Build` all fired on #6 and all three passed.
+Nothing else changed: same workflow files, same branches, same triggers.
+Whatever state was suppressing run creation, that toggle cleared it.
+
+### Why none of the obvious checks found it
+
+This is the part worth keeping, because **every surface GitHub exposes said
+Actions were healthy** while no run was being created:
+
+- `gh workflow list` reported every workflow `active` — not `disabled_fork`,
+  which is the state the fork gate actually produces.
+- `GET /actions/permissions` returned `{"enabled": true, "allowed_actions": "all"}`.
+- The **Actions tab carried no banner** — no "I understand my workflows, go
+  ahead and enable them", no billing warning. Confirmed in a real browser, not
+  inferred. The CI workflow's own page said simply "This workflow has no runs
+  yet", with no invalid-file error.
+- Settings → Actions → General had **"Allow all actions and reusable
+  workflows"** selected; repo `archived: false`, `disabled: false`, public.
+- `ci.yml` has been on `main` since **6 May 2026**, inherited from upstream.
+- The events definitely arrived: `/events` records `PushEvent refs/heads/main`
+  for #5's merge and `PullRequestEvent`s for #6 and #7.
+
+So the fork-gate theory was checked and **disproven** on every observable, yet
+the remedy was still to toggle Actions. Do not spend time re-deriving the cause
+from `isFork: true` — the diagnosis is not available through the API. **The
+diagnostic that works is the run count per workflow**, which is the one number
+none of the healthy-looking surfaces shows:
+
+    gh api repos/<owner>/<repo>/actions/workflows/<id>/runs --jq .total_count
+
+### Merging now deploys — and that path is broken
+
+Enabling CI turned on a chain that had never been exercised, and the first run
+proved out exactly how it behaves:
+
+- `build.yml` runs on push **and** pull request to `main`.
+- `deploy.yml` triggers on `workflow_run: workflows: ["Build"], types:
+  [completed]` with **no branch filter** — its only guard is
+  `conclusion == 'success'`.
+- `prepare` reads the build's ref: `refs/heads/main` sets `is_production=true`,
+  anything else `false`, and `deploy` picks its environment from that. A PR
+  build targets `preview`; **a merge to `main` targets `production`.**
+
+There are **no environments and no protection rules**, so nothing asks for
+approval.
+
+**It fails rather than deploys, and that is measured, not assumed.** The Deploy
+run triggered by #6's Build reached `bun cli/bin/rin.ts deploy --preview` and
+died on the first Cloudflare API call:
+
+    Failed to create D1 "rin-preview"
+    ✘ [ERROR] In a non-interactive environment, it's necessary to set a
+      CLOUDFLARE_API_TOKEN environment variable
+
+The repository has **zero Actions secrets**, and `deploy.yml` needs
+`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `JWT_SECRET`, `ADMIN_USERNAME`,
+`ADMIN_PASSWORD` and the `S3_*` pair. Nothing was uploaded and no Worker was
+published — it never authenticated.
+
+Two consequences:
+
+- **This deploy path has never been functional**, so it is *not* what deploys
+  blog.pearcache.com. Whatever does (Cloudflare's own Git integration, or a
+  hand-run `wrangler deploy`) is not visible in this repository — the same trap
+  the ears repo records under its two-deploy-paths note.
+- **Every merge to `main` now produces a red `Deploy`** until either the secrets
+  are added or that workflow is disabled. `ci.yml` and `test.yml` reference no
+  secrets and run clean, so the gates themselves are trustworthy; the red X is
+  the deploy chain alone. Decide which you want before reading a failed Deploy
+  as a broken build.
+
+### The gates still are not what they appear
+
+`bun run format:check` remains a `ci.yml` gate that cannot fail — the script is
+declared in `turbo.json` and root `package.json`, but no workspace defines it,
+so it resolves `Tasks: 0 successful, 0 total` and exits 0 unconditionally. It
+now *runs*, and still checks nothing.
+
+### The `Deploy` workflow is disabled, and that fact lives outside this repo
+
+Disabled 16 Sep 2026, immediately after the section above established that it
+can only ever fail. **Nothing in `.github/workflows/deploy.yml` records this** —
+the file is untouched and still reads as a live workflow. The state is held by
+GitHub:
+
+    gh api repos/<owner>/<repo>/actions/workflows --jq \
+      '.workflows[] | "\(.state)\t\(.name)\t\(.path)"'
+    # deploy.yml -> disabled_manually
+
+This is the same shape as the ears repo's note that Workers Builds was
+disconnected in the Cloudflare dashboard: a deliberate decision that no file in
+the repository can show you. If `deploy.yml` ever appears not to run and the
+workflow looks fine, **check the state before debugging the YAML.**
+
+**Why it is off.** It triggers on any successful `Build` with no branch filter,
+so every merge to `main` produced a red `Deploy`. It cannot succeed: the
+repository has zero Actions secrets and the workflow needs six. It is also not
+the path that deploys blog.pearcache.com, so nothing is lost by it being off.
+
+**Re-enabling** — needed if the Cloudflare secrets are ever added:
+
+    gh api -X PUT repos/<owner>/<repo>/actions/workflows/352871635/enable
+
+or Actions → Deploy → ⋯ → Enable workflow. Add the six secrets first, or it
+will simply go red again.
+
+**Disabling covers `workflow_dispatch` too**, so the manual "deploy this
+artifact" button is gone as well. That button never worked either, for the same
+missing-secrets reason.
+
+**Careful with the name.** There are two workflows whose names begin with
+"Deploy": `Deploy` (`deploy.yml`, id 352871635, the Cloudflare one, now
+disabled) and `Deploy Rspress site to Pages` (`docs.yml`, id 352871636, GitHub
+Pages, still active and unrelated). `gh workflow disable Deploy` matching by
+name is ambiguous — disable by **id**.
+
+`Build` is deliberately left active. It is a real check that the app compiles,
+it passes, and with `Deploy` disabled it no longer chains into anything.
