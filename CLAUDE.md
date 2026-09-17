@@ -504,3 +504,44 @@ Two consequences:
 declared in `turbo.json` and root `package.json`, but no workspace defines it,
 so it resolves `Tasks: 0 successful, 0 total` and exits 0 unconditionally. It
 now *runs*, and still checks nothing.
+
+### The `Deploy` workflow is disabled, and that fact lives outside this repo
+
+Disabled 16 Sep 2026, immediately after the section above established that it
+can only ever fail. **Nothing in `.github/workflows/deploy.yml` records this** —
+the file is untouched and still reads as a live workflow. The state is held by
+GitHub:
+
+    gh api repos/<owner>/<repo>/actions/workflows --jq \
+      '.workflows[] | "\(.state)\t\(.name)\t\(.path)"'
+    # deploy.yml -> disabled_manually
+
+This is the same shape as the ears repo's note that Workers Builds was
+disconnected in the Cloudflare dashboard: a deliberate decision that no file in
+the repository can show you. If `deploy.yml` ever appears not to run and the
+workflow looks fine, **check the state before debugging the YAML.**
+
+**Why it is off.** It triggers on any successful `Build` with no branch filter,
+so every merge to `main` produced a red `Deploy`. It cannot succeed: the
+repository has zero Actions secrets and the workflow needs six. It is also not
+the path that deploys blog.pearcache.com, so nothing is lost by it being off.
+
+**Re-enabling** — needed if the Cloudflare secrets are ever added:
+
+    gh api -X PUT repos/<owner>/<repo>/actions/workflows/352871635/enable
+
+or Actions → Deploy → ⋯ → Enable workflow. Add the six secrets first, or it
+will simply go red again.
+
+**Disabling covers `workflow_dispatch` too**, so the manual "deploy this
+artifact" button is gone as well. That button never worked either, for the same
+missing-secrets reason.
+
+**Careful with the name.** There are two workflows whose names begin with
+"Deploy": `Deploy` (`deploy.yml`, id 352871635, the Cloudflare one, now
+disabled) and `Deploy Rspress site to Pages` (`docs.yml`, id 352871636, GitHub
+Pages, still active and unrelated). `gh workflow disable Deploy` matching by
+name is ambiguous — disable by **id**.
+
+`Build` is deliberately left active. It is a real check that the app compiles,
+it passes, and with `Deploy` disabled it no longer chains into anything.
