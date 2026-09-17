@@ -288,7 +288,7 @@ hand-written migrations in `server/sql/` that the CLI actually applies. That
 output was deleted, not committed. If you run `db:gen`, throw the result away
 or you will have two migration lineages and only one of them runs.
 
-### REACHABLE, shipped, NOT fixed — i18next-http-backend GHSA-q89c-q3h5-w34g
+### REACHABLE, shipped — i18next-http-backend GHSA-q89c-q3h5-w34g (fixed, see below)
 
 The only one of the six non-drizzle alerts that touches deployed code with
 attacker-influencable input, and the reason "dev tooling, therefore harmless"
@@ -320,12 +320,8 @@ returns an array, so a victim mostly gets missing keys. Worth noting
 `interpolation: { escapeValue: false }` is set, which is normal under React but
 removes one incidental mitigation.
 
-**Left for its own change** because 2.5.2 → 3.0.5 is a major bump on a shipped
-client dependency. The cheaper, version-independent fix is to stop passing
-untrusted input to the URL at all: there are only four locales on disk (`en`,
-`ja`, `zh-CN`, `zh-TW`), so an allowlist — `supportedLngs` plus a `loadPath`
-function that rejects anything not in it — closes this whichever version is
-installed. Prefer that to the bump alone.
+**Fixed** — see "The two client alerts" below. Both halves: the version bump,
+and an allowlist that closes it independently of the version.
 
 ### NOT REACHABLE — @cloudflare/vite-plugin GHSA-4pfg-2mw5-f8jx
 
@@ -339,8 +335,7 @@ the plugin's dev server never runs. Positive control: the same grep finds
 Zero occurrences in the deployed worker bundle.
 
 **The right fix is deletion, not a 0.1 → 1.6 major upgrade.** It is dead weight
-that costs a recurring alert. Not removed here only because it is outside this
-change's scope.
+that costs a recurring alert. **Deleted** — see below.
 
 ### NOT REACHABLE — turbo GHSA-hcf7-66rw-9f5r (moderate) and GHSA-3qcw-2rhx-2726 (low)
 
@@ -404,7 +399,113 @@ server suite is **308** tests; PR #5 merged mid-change and took main to
 does not match, check which commit main is on before assuming a test was lost.
 
 Local bun is 1.4.0; `ci.yml` pins 1.3.13. Nothing observed depended on the
-difference, but it is unverified on the CI version until CI runs.
+difference, and CI has since confirmed it — see the CI section below; `CI`,
+`CI - Test and Type Check` and `Build` all pass on the pinned 1.3.13.
+
+
+## The two client alerts — 16 Sep 2026
+
+Follow-up to the review above. Closes the two remaining Dependabot alerts that
+land on `client`, and they are closed in opposite ways: one needed a real
+control, the other needed a deletion.
+
+### `supportedLngs` is a security control here, not a preference
+
+`i18next-http-backend` is now `^3.0.5` (resolved 3.0.6), which closes
+GHSA-q89c-q3h5-w34g. **The bump is the lesser half of this change.** The
+allowlist is the part that holds, and it holds whatever version is installed:
+
+    supportedLngs: [...SUPPORTED_LNGS]      // client/src/app/bootstrap.ts
+
+Measured, with a control first — without the allowlist, i18next really does ask
+the backend for the traversing code, and with it it does not:
+
+| detected `?lng=` | before: languages requested | after |
+|---|---|---|
+| `en` | `["en"]` | `["en"]` |
+| `zh-CN` | `["zh-CN","zh","en"]` | `["zh-CN","en"]` |
+| `en-US` | `["en-US","en"]` | `["en"]` |
+| `ja-JP` | `["ja-JP","ja","en"]` | `["ja","en"]` |
+| `../..` | **`["../..","en"]`** | `["en"]` |
+
+Two things worth reading off that table. Every locale the site ships still
+loads, so this is not a filter that quietly breaks Japanese. And it *removes*
+requests: `en-US` and `ja-JP` used to 404 on the way to their base language and
+now collapse straight onto it.
+
+`zh` and `zh-Hant-TW` now resolve to `en` without first 404ing on `zh` /
+`zh-Hant`. Same outcome as before, one less request — but note it *is* the same
+outcome: a Traditional-Chinese browser announcing `zh-Hant-TW` gets English, not
+`zh-TW`, and always did. That is a pre-existing gap in the locale files, not
+something this change introduced, and `nonExplicitSupportedLngs` would not fix
+it either (it would re-admit `en-US` to the request path instead).
+
+### The locale list is in one file because two would drift silently
+
+`client/src/app/locales.ts` is new and holds `LOCALES` / `SUPPORTED_LNGS`.
+Before this, the language menu's list was a `const` inside `LanguageSwitch`
+in `action-buttons.tsx`; the allowlist would have been a second copy.
+
+That is the failure shape this repo keeps meeting — the `<input type="url">`
+that `safeWebsite()` had to re-check, and the comment switches that only moved
+the UI. Two lists here fail **silently in both directions**: add a locale to the
+menu only and you ship a button that requests a file the allowlist blocks; add
+it to the allowlist only and you ship a locale nobody can select. Neither throws.
+
+`locales.test.ts` asserts the list equals the directories actually present in
+`client/public/locales`, in both directions, so the drift is a red test rather
+than a dead menu item.
+
+### The security test carries its own control
+
+`locales.test.ts` has four cases, and the first one is the important one:
+
+    CONTROL: without the allowlist, the traversing code does reach the backend
+
+Without that, "no traversing request was made" would pass just as happily if
+i18next ever stopped requesting unknown codes for some unrelated reason — a
+check that cannot fail, asserting nothing. The control fails if the probe stops
+being able to observe the thing it is testing.
+
+The backend stub records the language it is asked for instead of fetching, so
+this observes i18next's real resolution path rather than re-asserting the config.
+
+### `@cloudflare/vite-plugin` deleted, not upgraded
+
+GHSA-4pfg-2mw5-f8jx was a moderate on a `0.1.1` devDependency that **nothing
+imported** — it appeared only in `client/package.json`. Upgrading 0.1 → 1.6 to
+close an alert on a package that never loads is worse than removing it.
+
+Removing it dropped **223 lines from `bun.lock`**, so it was not one package but
+a tree of them. `client/vite.config.ts` is unchanged and still builds — it loads
+`react()` and `visualizer()` and never referenced the plugin.
+
+Note `bun install` leaves the stale `node_modules/@cloudflare/vite-plugin`
+directory behind; it is gone from the lockfile, which is what CI installs from
+and what Dependabot reads. Do not take the leftover directory as the removal
+having failed.
+
+### Verified
+
+Gates, on the stacked branch, `check` always `--force`:
+
+| gate | result |
+|---|---|
+| `bun run check --force` | exit 0, 0 TS errors |
+| `bun run test:client` | **38 pass / 0 fail** (32 before, +6 new) |
+| `bun run test:server` | 319 pass / 0 fail |
+| `bun run build` in `client/` | exit 0 |
+
+And confirmed in the built artifact rather than the source, because that is the
+thing that ships: `dist/client/assets/index-*.js` contains
+`supportedLngs:[...sBe]` where `sBe=Uxe.map(({code:i})=>i)` — the shared list,
+minified — with all four codes present, and **zero** occurrences of
+`@cloudflare/vite-plugin`.
+
+The remaining four open alerts are turbo's, and the section above says why none
+of them is reachable. Closing them means turbo 1 → 2, which is a build-tool
+major with no security exposure behind it — worth doing on its own schedule, not
+as a security fix.
 
 ## CI had never run on this fork — fixed 16 Sep 2026
 
