@@ -740,3 +740,59 @@ ever bit someone running `build:all` by hand — but it bit them silently.
 | `bun run test:client` | 38 pass / 0 fail |
 | `bun run build:server` | exit 0 |
 | `bun run build:all` | exit 0, artifact present |
+
+## `bun.lock` resolves half its packages from a mirror — 16 Sep 2026
+
+Noticed while diagnosing a CI failure, checked, and **left alone deliberately**.
+Recorded so it is a known property rather than a surprise.
+
+`bun.lock` records a resolved tarball URL per package, and this one is **split**:
+
+| source | entries |
+|---|---|
+| `https://registry.npmmirror.com` | **803** |
+| empty, i.e. the default registry (`registry.npmjs.org`) | **740** |
+| anything else | 0 |
+| total | 1,543 |
+
+It is **not** a configuration. There is no `.npmrc` and no `bunfig.toml`
+anywhere in this repository, so nothing here selects a registry. The URLs are
+baked into the lockfile, inherited from upstream — `bun.lock` arrives in
+openRin's `b0de3bb chore: migrate Bun lockfile format (#506)` — and they persist
+for any package whose entry is not re-resolved.
+
+That is also why the split exists and why it moves: every package installed or
+updated since carries the empty (default) field, including everything touched by
+#6, #7 and #8. **The mirror's share decays on its own** as dependencies are
+bumped.
+
+### Why this is lower risk than it sounds, and where the risk actually is
+
+- **Integrity is pinned.** All 803 mirror-sourced entries carry a `sha512`
+  hash — checked, none missing — so a tampered tarball fails verification rather
+  than installing. This is not "arbitrary code from a mirror".
+- **The real exposure is first resolution.** A hash pins what you already have;
+  it does not tell you the first fetch was honest. Every one of those 803 hashes
+  was recorded by whoever originally resolved it, upstream, through the mirror.
+- **It is a third-party availability dependency.** An install pulls those
+  tarballs from a host neither this project nor npm controls.
+
+### Do not blame this for the mermaid flake
+
+CI went red once on `5716834` with `error: Fail extracting tarball for
+"mermaid"` during `bun install`, and the obvious move is to pin it on the
+mirror. **`mermaid@10.9.5` resolves from the default registry, not npmmirror** —
+checked. A re-run passed. So that was an ordinary transient download failure,
+and it is evidence of nothing about the mirror.
+
+### Why it was not "fixed"
+
+Forcing re-resolution (an `.npmrc` plus a lockfile regeneration) would rewrite
+most of a 1,543-entry lockfile in one commit. That trades a documented,
+hash-pinned property for a diff **nobody can meaningfully review**, which is a
+worse position for a repository that treats review as the control. The decay
+above gets there without a flag day.
+
+If it is ever worth forcing, do it as its own PR with nothing else in it, and
+say in the description that the diff is machine-generated and what was checked
+instead of reading it.
