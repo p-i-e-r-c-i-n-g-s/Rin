@@ -406,95 +406,101 @@ does not match, check which commit main is on before assuming a test was lost.
 Local bun is 1.4.0; `ci.yml` pins 1.3.13. Nothing observed depended on the
 difference, but it is unverified on the CI version until CI runs.
 
-## No CI has ever run on this fork — 16 Sep 2026
+## CI had never run on this fork — fixed 16 Sep 2026
 
-Found while checking the PRs for the Dependabot work above. It is the reason
-every "verified" claim in this file names a local run.
+Found while checking the PRs for the Dependabot work above, and **resolved**.
+Before the fix, no workflow in `.github/workflows/` had ever executed:
 
-Measured through the Actions API, not inferred from the workflow files:
-
-| workflow | state | runs, all time |
+| workflow | state | runs, all time (before) |
 |---|---|---|
 | `CI` (`ci.yml`) | active | **0** |
 | `CI - Test and Type Check` (`test.yml`) | active | **0** |
 | `Build` (`build.yml`) | active | **0** |
 | `Deploy` (`deploy.yml`) | active | **0** |
 
-Total runs in the repository's entire history: **2**, both of them
-`Dependabot Updates`, which is GitHub-managed. No workflow in
-`.github/workflows/` has ever executed — not on a push to `main`, not on a pull
-request, not once. #3 and #5 both merged without CI.
+The repository's entire Actions history was **2 runs**, both GitHub-managed
+`Dependabot Updates`. #3 and #5 merged without CI.
 
-`gh workflow list` reports every one of them `active`, and
-`GET /actions/permissions` returns `{"enabled": true, "allowed_actions": "all"}`,
-so **neither of the two obvious checks reveals this.** You have to ask for the
-run count.
+### What fixed it: toggling repository Actions off and on
 
-**The fork-gate explanation is wrong.** It was the first guess — GitHub does
-disable workflows in a fork until the owner enables them once — and it was
-checked and disproven the same day:
+    gh api -X PUT repos/<owner>/<repo>/actions/permissions -F enabled=false
+    gh api -X PUT repos/<owner>/<repo>/actions/permissions -F enabled=true -f allowed_actions=all
 
-- The Actions tab carries **no fork banner** and no "I understand my workflows"
-  prompt. Looked at in a real browser, not inferred.
-- Workflows report `state: active`, not `disabled_fork`, which is the state that
-  gate actually produces.
-- Settings → Actions → General has **"Allow all actions and reusable
-  workflows"** selected, and the repo is `archived: false`, `disabled: false`,
-  public.
-- `ci.yml` has been on `main` since **6 May 2026**, inherited from upstream, so
-  this is not a workflow that arrived after the events.
-- The events definitely reached GitHub: `/events` records
-  `PushEvent refs/heads/main` for #5's merge, plus `PullRequestEvent`s for #6
-  and #7. `ci.yml` triggers on both.
+The next `pull_request` event after that produced runs immediately — `CI`,
+`CI - Test and Type Check` and `Build` all fired on #6 and all three passed.
+Nothing else changed: same workflow files, same branches, same triggers.
+Whatever state was suppressing run creation, that toggle cleared it.
 
-So every surface GitHub exposes says Actions are enabled, permissive and
-correctly triggered, and no run is created anyway. **Cause unknown.** Tried and
-did not fix it: re-asserting `PUT /actions/permissions`, and a full
-disable → enable toggle of repository Actions. The next step is GitHub Support,
-because there is nothing left in the repository to change.
+### Why none of the obvious checks found it
 
-Do not re-derive the fork theory from `isFork: true`. It has been checked.
+This is the part worth keeping, because **every surface GitHub exposes said
+Actions were healthy** while no run was being created:
 
-Two consequences worth stating plainly:
+- `gh workflow list` reported every workflow `active` — not `disabled_fork`,
+  which is the state the fork gate actually produces.
+- `GET /actions/permissions` returned `{"enabled": true, "allowed_actions": "all"}`.
+- The **Actions tab carried no banner** — no "I understand my workflows, go
+  ahead and enable them", no billing warning. Confirmed in a real browser, not
+  inferred. The CI workflow's own page said simply "This workflow has no runs
+  yet", with no invalid-file error.
+- Settings → Actions → General had **"Allow all actions and reusable
+  workflows"** selected; repo `archived: false`, `disabled: false`, public.
+- `ci.yml` has been on `main` since **6 May 2026**, inherited from upstream.
+- The events definitely arrived: `/events` records `PushEvent refs/heads/main`
+  for #5's merge and `PullRequestEvent`s for #6 and #7.
 
-- **A local run is currently the only verification that exists.** When this file
-  says a gate passed, that is a laptop, on bun 1.4.0, not `ci.yml` on the 1.3.13
-  it pins. Nothing has ever been checked on the pinned version.
-- It makes the `format:check` finding above academic in a worse way. That gate
-  cannot fail *and* has never been invoked. A repository can have both a check
-  that proves nothing and no check at all.
+So the fork-gate theory was checked and **disproven** on every observable, yet
+the remedy was still to toggle Actions. Do not spend time re-deriving the cause
+from `isFork: true` — the diagnosis is not available through the API. **The
+diagnostic that works is the run count per workflow**, which is the one number
+none of the healthy-looking surfaces shows:
 
-This outranks the `DEPLOY_ENABLED` hazard recorded in the ears repo: there, a
-misconfigured gate rendered green. Here the gates do not run, and a PR shows
-"no checks reported", which is easy to read as "not finished yet" rather than
-"never configured to run".
+    gh api repos/<owner>/<repo>/actions/workflows/<id>/runs --jq .total_count
 
-### When Actions do start running, merging becomes deploying
+### Merging now deploys — and that path is broken
 
-Worth knowing before anyone fixes the above, because it changes what a merge
-means:
+Enabling CI turned on a chain that had never been exercised, and the first run
+proved out exactly how it behaves:
 
 - `build.yml` runs on push **and** pull request to `main`.
 - `deploy.yml` triggers on `workflow_run: workflows: ["Build"], types:
   [completed]` with **no branch filter** — its only guard is
   `conclusion == 'success'`.
-- `prepare` then reads the build's ref: `refs/heads/main` sets
-  `is_production=true`, anything else `false`, and the `deploy` job picks its
-  environment from that. So a PR build targets `preview` and **a merge to main
-  targets `production`.**
+- `prepare` reads the build's ref: `refs/heads/main` sets `is_production=true`,
+  anything else `false`, and `deploy` picks its environment from that. A PR
+  build targets `preview`; **a merge to `main` targets `production`.**
 
-There are **no environments configured and no protection rules**, so nothing
-would ask for approval.
+There are **no environments and no protection rules**, so nothing asks for
+approval.
 
-**It would fail rather than deploy, though.** The repository has **zero Actions
-secrets**, and `deploy.yml` needs `CLOUDFLARE_API_TOKEN`,
-`CLOUDFLARE_ACCOUNT_ID`, `JWT_SECRET`, `ADMIN_USERNAME`, `ADMIN_PASSWORD` and
-the `S3_*` pair. So this deploy path has never been functional, and could not
-have been even if Actions ran — **blog.pearcache.com is not deployed by this
-workflow.** Whatever does deploy it (Cloudflare's own Git integration, or a
-hand-run `wrangler deploy`) is not visible in this repository, which is the same
-trap the ears repo records under its two-deploy-paths note: config describes
-intent, and only a run describes behaviour.
+**It fails rather than deploys, and that is measured, not assumed.** The Deploy
+run triggered by #6's Build reached `bun cli/bin/rin.ts deploy --preview` and
+died on the first Cloudflare API call:
 
-`ci.yml` and `test.yml` reference no secrets at all, so the gates themselves
-would run clean. The deploy chain is the only part that would go red.
+    Failed to create D1 "rin-preview"
+    ✘ [ERROR] In a non-interactive environment, it's necessary to set a
+      CLOUDFLARE_API_TOKEN environment variable
+
+The repository has **zero Actions secrets**, and `deploy.yml` needs
+`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `JWT_SECRET`, `ADMIN_USERNAME`,
+`ADMIN_PASSWORD` and the `S3_*` pair. Nothing was uploaded and no Worker was
+published — it never authenticated.
+
+Two consequences:
+
+- **This deploy path has never been functional**, so it is *not* what deploys
+  blog.pearcache.com. Whatever does (Cloudflare's own Git integration, or a
+  hand-run `wrangler deploy`) is not visible in this repository — the same trap
+  the ears repo records under its two-deploy-paths note.
+- **Every merge to `main` now produces a red `Deploy`** until either the secrets
+  are added or that workflow is disabled. `ci.yml` and `test.yml` reference no
+  secrets and run clean, so the gates themselves are trustworthy; the red X is
+  the deploy chain alone. Decide which you want before reading a failed Deploy
+  as a broken build.
+
+### The gates still are not what they appear
+
+`bun run format:check` remains a `ci.yml` gate that cannot fail — the script is
+declared in `turbo.json` and root `package.json`, but no workspace defines it,
+so it resolves `Tasks: 0 successful, 0 total` and exits 0 unconditionally. It
+now *runs*, and still checks nothing.
