@@ -405,3 +405,49 @@ does not match, check which commit main is on before assuming a test was lost.
 
 Local bun is 1.4.0; `ci.yml` pins 1.3.13. Nothing observed depended on the
 difference, but it is unverified on the CI version until CI runs.
+
+## No CI has ever run on this fork — 16 Sep 2026
+
+Found while checking the PRs for the Dependabot work above. It is the reason
+every "verified" claim in this file names a local run.
+
+Measured through the Actions API, not inferred from the workflow files:
+
+| workflow | state | runs, all time |
+|---|---|---|
+| `CI` (`ci.yml`) | active | **0** |
+| `CI - Test and Type Check` (`test.yml`) | active | **0** |
+| `Build` (`build.yml`) | active | **0** |
+| `Deploy` (`deploy.yml`) | active | **0** |
+
+Total runs in the repository's entire history: **2**, both of them
+`Dependabot Updates`, which is GitHub-managed. No workflow in
+`.github/workflows/` has ever executed — not on a push to `main`, not on a pull
+request, not once. #3 and #5 both merged without CI.
+
+`gh workflow list` reports every one of them `active`, and
+`GET /actions/permissions` returns `{"enabled": true, "allowed_actions": "all"}`,
+so **neither of the two obvious checks reveals this.** You have to ask for the
+run count.
+
+**Most likely cause, not verified from the API:** this repository is a fork
+(`isFork: true`), and GitHub disables workflows in a fork until the owner
+enables them once in the Actions tab. The per-workflow `state: active` field
+does not reflect that gate, which is exactly why the two checks above look
+healthy. Fixing it is a click in **Actions → "I understand my workflows, go
+ahead and enable them"**; if that banner is absent, check Settings → Actions →
+General.
+
+Two consequences worth stating plainly:
+
+- **A local run is currently the only verification that exists.** When this file
+  says a gate passed, that is a laptop, on bun 1.4.0, not `ci.yml` on the 1.3.13
+  it pins. Nothing has ever been checked on the pinned version.
+- It makes the `format:check` finding above academic in a worse way. That gate
+  cannot fail *and* has never been invoked. A repository can have both a check
+  that proves nothing and no check at all.
+
+This outranks the `DEPLOY_ENABLED` hazard recorded in the ears repo: there, a
+misconfigured gate rendered green. Here the gates do not run, and a PR shows
+"no checks reported", which is easy to read as "not finished yet" rather than
+"never configured to run".
