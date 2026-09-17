@@ -646,3 +646,97 @@ name is ambiguous — disable by **id**.
 
 `Build` is deliberately left active. It is a real check that the app compiles,
 it passes, and with `Deploy` disabled it no longer chains into anything.
+
+## turbo 1 → 2 — 16 Sep 2026
+
+Closes the last four Dependabot alerts (GHSA-hcf7-66rw-9f5r moderate,
+GHSA-3qcw-2rhx-2726 low, each counted twice because turbo was declared in two
+directories). Neither was reachable — the section above says why — so this is
+hygiene, and the interesting part is what the upgrade *found*.
+
+**The patched version is 2.9.14, not "2.x".** Both advisories cover
+`<= 2.9.13` / `< 2.9.14`, so a bump that stopped at 2.0 would have closed
+neither. Taken to 2.10.13.
+
+### Only the root bumped; `client`'s turbo was deleted
+
+`client/package.json` declared `turbo` and **never invoked it** — no turbo in
+any of its nine scripts, and no `client/turbo.json`. Turbo is the monorepo
+orchestrator and only the root's `check`, `build:all` and `format:*` scripts
+call it. So two of the four alerts are closed by removal rather than upgrade,
+the same reasoning as `@cloudflare/vite-plugin` above: a version bump on a
+package that never loads buys nothing.
+
+### The one breaking change, and it fails loudly
+
+`turbo.json`'s `pipeline` key is `tasks` in 2.x. turbo says so precisely, with
+the offending span and the fix, and **exits 1** — it does not silently run
+nothing:
+
+    x Found `pipeline` field instead of `tasks`.
+    help: Changed in 2.0: `pipeline` has been renamed to `tasks`.
+
+One key renamed. No codemod needed, and nothing else in this config was
+rejected.
+
+### REAL DEFECT, pre-existing, found by turbo 2's warning — `build:all` could
+report success having built nothing
+
+turbo 2 warns where turbo 1 was silent:
+
+    WARNING  no output files found for task client#build.
+             Please check your `outputs` key in `turbo.json`
+
+`turbo.json`'s `build` task declares `outputs: ["dist/**"]`, and turbo resolves
+outputs **relative to each package**. `rin-server` writes to `server/dist`, so
+that is correct for it. The client's vite config writes to `../dist/client` —
+the repository root's `dist/`, **outside the client package** — so turbo
+captured nothing for `client#build` and a cache hit restored nothing.
+
+Reproduced, not theorised:
+
+    rm -rf dist/client && bun run build:all
+    -> client:build: cache hit, replaying logs
+    -> Tasks: 2 successful, 2 total     exit 0
+    -> dist/client/index.html: MISSING
+
+A green build that produced no artifact — the fail-silent class this file keeps
+returning to.
+
+**Fixed** with a per-package override, because turbo `outputs` cannot point
+outside the package and moving the client's `outDir` would mean changing
+`wrangler.toml`'s `[assets] directory` too:
+
+    "client#build": { "dependsOn": ["^build"], "cache": false }
+
+`rin-server#build` keeps its working cache. Verified the same way it was found:
+`rm -rf dist/client && bun run build:all` now reports `cache bypass, force
+executing`, runs `tsc && vite build`, and the artifact is there.
+
+**Blast radius was small and is worth knowing:** nothing calls `build:all`.
+CI's `build.yml` and the deploy path use `bun run build`
+(`build:client && build:server`), which never goes through turbo. So this only
+ever bit someone running `build:all` by hand — but it bit them silently.
+
+### Two things the upgrade improved for free
+
+- **turbo 1.13 could not parse `bun.lock`.** Every run printed
+  `could not resolve workspaces: unable to parse ... "client@^workspace:client"`
+  — it was reading a bun lockfile with its yarn parser. Gone in 2.x: zero
+  occurrences in any run since.
+- **`format:check` now says it did nothing.** turbo 2 prints
+  `WARNING No tasks were executed as part of this run.` where turbo 1 printed
+  only `Tasks: 0 successful, 0 total`. It still **exits 0**, so it is still a
+  `ci.yml` gate that cannot fail — see above — but the upgrade at least makes
+  the emptiness visible in the log. Fixing it properly still means giving a
+  workspace a real `format:check` script or dropping the gate.
+
+### Verified
+
+| gate | result |
+|---|---|
+| `bun run check --force` | exit 0, 0 TS errors |
+| `bun run test:server` | 319 pass / 0 fail |
+| `bun run test:client` | 38 pass / 0 fail |
+| `bun run build:server` | exit 0 |
+| `bun run build:all` | exit 0, artifact present |
