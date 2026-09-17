@@ -796,3 +796,77 @@ above gets there without a flag day.
 If it is ever worth forcing, do it as its own PR with nothing else in it, and
 say in the description that the diff is machine-generated and what was checked
 instead of reading it.
+
+## What actually deploys blog.pearcache.com — answered 16 Sep 2026
+
+The note above said the real deploy path "is not visible in this repository".
+It still is not, but it is now known: **a hand-run `wrangler deploy` from the
+owner's machine.** Nothing automated deploys this site.
+
+Read from the Cloudflare API, which is run evidence rather than config:
+
+- `blog.pearcache.com` is a **custom domain** bound to the service
+  `rin-server`, production — so this repo's worker is the thing serving it.
+- **All 10 deployments and all 20 versions** of `rin-server` carry
+  `source: "wrangler"` and `author_email: pearsonphilpot@gmail.com`. There is no
+  other source in the history.
+- The worker's `modified_on` is **2026-09-10T06:46:48Z**, identical to the
+  newest deployment, and there are **zero deployments after it**.
+
+### The two automated paths were ruled out, not assumed away
+
+- **GitHub Actions is not it.** `deploy.yml` has never run (see the CI section
+  above), and the repository has zero Actions secrets against the six it needs.
+  It is now disabled outright.
+- **Cloudflare Workers Builds is not it either.** The Workers Builds API returns
+  `total_count: 0` for this worker — it has never built once.
+
+  The misleading part: a **`cloudflare-workers-and-pages` check suite is created
+  on every push to `main`**, going back at least to 10 Sep, and every one sits
+  at `queued` forever. That is the Cloudflare GitHub App being installed on the
+  account, not a build running. **Do not read those queued suites as a pending
+  deploy.** They will never complete, because nothing is connected.
+
+### PRODUCTION IS STALE, and this is the part that matters
+
+The last deploy, `2026-09-10T06:46:48Z`, lands **28 seconds** after commit
+`f473b8d chore: rename articles heading to posts`
+(`2026-09-09T23:46:20-07:00` = `06:46:20Z`) — the owner committed, then ran
+`wrangler deploy`. Nothing has been deployed since.
+
+So everything merged after that commit **is not live**:
+
+| merged | not live |
+|---|---|
+| #3 `755b51b` | fast-xml-parser 5.11.1 |
+| #5 `343837c` | **the entire security audit fix set** |
+| #6 `11f04d7` | drizzle-orm 0.45.2 |
+| #7 `5716834` | i18next allowlist + bump, dead plugin removed |
+| #8 `6f8e8fb` | turbo 2, build-cache fix |
+
+**#5 is the one to care about.** Every item this file records as "REAL, FIXED"
+is fixed *in the repository* and still live *on the site*: guest comments
+accepting unbounded anonymous writes, the `javascript:` URI injection through
+`guestWebsite`, guest email addresses published to every reader, no security
+headers at all, and `parseBody()` running before the auth check on upload.
+"Fixed" in this file has meant "fixed in main". It has never meant "deployed".
+
+### The weakness of the manual path, stated plainly
+
+`wrangler deploy` ships the **working tree**, not a commit. Cloudflare records
+who deployed and when, but **nothing anywhere records which commit is live** —
+the 28-second correlation above is an inference from timestamps, not a stored
+fact, and it would not survive a deploy made from a dirty tree.
+
+Two consequences worth keeping:
+
+- To know what is live you must correlate `modified_on` against `git log` by
+  hand, and accept that the answer is approximate.
+- There is no reason for this repo's CI to be trusted as a deploy gate, because
+  it does not gate the deploy. A green `main` says the code is good; it says
+  nothing about the site.
+
+If this is ever automated, the honest fix is the one `deploy.yml` already
+gestures at — add the six secrets, re-enable that workflow (see the note above
+on how it is disabled), and let a merge be the deploy. Until then, **a merge is
+not a release**, and this file should not imply otherwise.
