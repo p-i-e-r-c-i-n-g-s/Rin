@@ -1033,3 +1033,58 @@ there, with an error that read like a malformed command.
 **The first deploy after this merges is the first one whose commit is recorded.**
 Everything before it stays an inference, including the 17 Sep deploy that this
 HAR shows carried the security headers.
+
+### Measured: `run_worker_first = ["/"]` closes it, and the allowlist trap does not apply here
+
+Run against `wrangler dev` on 18 Sep 2026, three configs, same probe set. `CSP`
+and `XFO` are header presence; `json` means the response was `application/json`
+rather than `index.html`.
+
+| path | current | `["/"]` | `true` |
+|---|---|---|---|
+| `/` | **no headers** | headers | headers |
+| `/assets/index-*.js` | no headers | no headers | headers |
+| `/api/feed` | json + headers | **json** + headers | json + headers |
+| `/api/user/profile` | json + headers | **json** + headers | json + headers |
+| `/feed/2` | headers | headers | headers |
+| `/favicon.ico` | headers | headers | headers |
+
+**The control is the load-bearing row.** With the current config `wrangler dev`
+serves `/` as 200 HTML with no CSP and no `X-Frame-Options` — reproducing the
+production HAR exactly. The rig could therefore fail, and did, in the same way
+production does; without that row neither variant's result would mean anything.
+
+**The ears misroute trap does not fire here, and now we know why.** Scoping
+`run_worker_first` to document paths in ears-pearcache served `index.html` in
+place of every `/api/` response. Under `["/"]` here, `/api/feed` and
+`/api/user/profile` both still returned `application/json`. The difference is
+`not_found_handling`: ears sets it, so an unmatched path is answered by the asset
+store; this config sets none, so an unmatched path falls through to the Worker.
+**Do not carry that warning across as though it applied — but do re-check it if
+`not_found_handling` is ever added here.**
+
+`["/"]` is sufficient because `/` is the only document the asset store can
+answer: `index.html` is the single HTML file in `dist/client`, `/index.html`
+answers **307 → `/`** (verified, so it is not a bypass), and `/about`,
+`/timeline`, `/feed/2` match no file and already reach the Worker. `true`
+additionally wraps the JS, CSS, fonts and locale JSON, where these headers do
+nothing — CSP and `X-Frame-Options` are enforced per document, not per
+subresource.
+
+Cost, from the front-page HAR: 4 Worker requests per view today; `["/"]` makes it
+5, `true` makes it 9. At this traffic both sit inside the 10M/month included on
+Workers Paid, so the invoice is not the argument. The argument against `true` is
+`[placement] mode = "smart"`, which relocates execution near D1 and would route
+static assets through that colo instead of the local edge — **and that cost
+cannot be measured locally**, which is itself a reason to prefer the variant that
+does not incur it.
+
+Two test-rig notes so this is reproducible: `[ai]` must be removed from the
+config for `wrangler dev` to boot (no local emulation, so it forces a remote
+proxy session that fails to authenticate), and it has no bearing on routing. The
+`500`s on `/api/feed` and `/favicon.ico` are local-only — unmigrated local D1 and
+no R2 — and identical across all three variants, which is what shows they are not
+caused by the routing change.
+
+**Still not applied.** It needs a deploy, and the choice between `["/"]` and
+`true` is the owner's.

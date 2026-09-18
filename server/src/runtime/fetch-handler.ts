@@ -77,11 +77,28 @@ async function serveSpaEntry(request: Request, env: Env) {
 // paths carried all five.
 //
 // So the document itself has no CSP -- the one place CSP does anything. This is
-// structural, not a stale cache: a purge changes nothing. The fix is
-// `run_worker_first = true` (the boolean, NOT a path allowlist -- scoping it to
-// document paths served index.html in place of every API response in a sibling
-// repo), which this handler is already written for. Cost: the Worker is invoked
-// on every asset request.
+// structural, not a stale cache: a purge changes nothing.
+//
+// `run_worker_first = ["/"]` fixes it, measured against `wrangler dev` on
+// 18 Sep 2026 (table in CLAUDE.md). It is enough because `/` is the ONLY
+// document the asset store can answer: `index.html` is the single HTML file in
+// `dist/client`, `/index.html` 307s to `/`, and every other route (`/about`,
+// `/feed/2`, ...) matches no file, so it already arrives here and is already
+// wrapped. `run_worker_first = true` also works but additionally routes the JS,
+// CSS, fonts and locale JSON through the Worker, where these headers do nothing
+// -- CSP and X-Frame-Options are enforced per document, not per subresource.
+//
+// `run_worker_first` as an array IS an allowlist, and scoping one to document
+// paths served `index.html` in place of every `/api/` response in
+// ears-pearcache. That does not happen here and the difference is worth
+// knowing: that repo sets `not_found_handling`, so an unmatched path was
+// answered by the asset store; this config sets none, so an unmatched path
+// falls through to the Worker. Verified, not assumed -- `/api/feed` and
+// `/api/user/profile` both still returned `application/json` under `["/"]`.
+//
+// Neither is applied yet: it needs a deploy, and `[placement] mode = "smart"`
+// makes the cost of routing assets through the Worker (option `true`)
+// unmeasurable locally.
 //
 // script-src 'self' is the load-bearing directive: the built index.html loads
 // two external, same-origin scripts and no inline ones, so no hash or nonce is
