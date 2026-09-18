@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+  buildWranglerAssetsConfig,
   buildWranglerObservabilityConfig,
   formatDeployMessage,
   buildWranglerQueueConfig,
@@ -108,5 +109,32 @@ describe("formatDeployMessage", () => {
 
     expect(message).toBe("no-git");
     expect(message.length).toBeGreaterThan(0);
+  });
+});
+
+describe("buildWranglerAssetsConfig", () => {
+  it("declares the asset store binding and directory", () => {
+    const config = buildWranglerAssetsConfig();
+
+    expect(config).toContain("[assets]");
+    expect(config).toContain('directory = "./dist/client"');
+    expect(config).toContain('binding = "ASSETS"');
+  });
+
+  it("keeps run_worker_first, without which the front page loses every security header", () => {
+    // The asset store answers `/` from index.html and never invokes the Worker,
+    // so withSecurityHeaders does not run and `/` ships with no CSP and no
+    // X-Frame-Options. Nothing reports that -- the page renders fine. If this
+    // line is ever dropped from the generated config, this is the only thing
+    // that will notice.
+    expect(buildWranglerAssetsConfig()).toContain('run_worker_first = ["/"]');
+  });
+
+  it("scopes run_worker_first to an allowlist rather than every asset request", () => {
+    // `true` also works, but routes JS/CSS/fonts/locale JSON through the Worker
+    // -- where these headers do nothing, being per-document -- and past the
+    // smart-placement colo. Widening it should be a deliberate edit here, not a
+    // silent latency regression.
+    expect(buildWranglerAssetsConfig()).not.toContain("run_worker_first = true");
   });
 });

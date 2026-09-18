@@ -1086,5 +1086,26 @@ proxy session that fails to authenticate), and it has no bearing on routing. The
 no R2 — and identical across all three variants, which is what shows they are not
 caused by the routing change.
 
-**Still not applied.** It needs a deploy, and the choice between `["/"]` and
-`true` is the owner's.
+**Applied as `["/"]`**, in `buildWranglerAssetsConfig()` in
+`cli/src/tasks/deploy-cf.ts` — the **generator**, because `wrangler.toml` is
+rewritten on every deploy and an edit to the checked-in file would be silently
+discarded. It takes effect on the next deploy; nothing was deployed here.
+
+Verified against the **exact file the generator now produces** (the builder's
+output spliced into the real config, so the column-0 `[assets]` header that
+interpolation yields was tested, not just the hand-indented form):
+
+    /                             200  CSP+XFO   text/html      <- the fix
+    /about, /feed/2               200  CSP+XFO   text/html
+    /api/feed                     500  CSP+XFO   application/json
+    /api/user/profile             403  CSP+XFO   application/json
+    /assets/index-*.js            200  none      text/javascript  <- intended
+    /locales/en/translation.json  200  none      application/json <- intended
+    /index.html                   307  none      -> /
+
+`buildWranglerAssetsConfig` is exported and tested for the same reason its three
+siblings in that file are: the failure mode of losing that line is a front page
+that renders perfectly with no CSP and no `X-Frame-Options`, and nothing else in
+this repo would notice. One test asserts the line is present; another asserts it
+is **not** `true`, so widening it is a deliberate edit rather than a silent
+latency regression through the smart-placement colo.

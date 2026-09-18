@@ -96,9 +96,11 @@ async function serveSpaEntry(request: Request, env: Env) {
 // falls through to the Worker. Verified, not assumed -- `/api/feed` and
 // `/api/user/profile` both still returned `application/json` under `["/"]`.
 //
-// Neither is applied yet: it needs a deploy, and `[placement] mode = "smart"`
-// makes the cost of routing assets through the Worker (option `true`)
-// unmeasurable locally.
+// `["/"]` is now set by `buildWranglerAssetsConfig()` in
+// `cli/src/tasks/deploy-cf.ts`, which GENERATES `wrangler.toml` -- editing the
+// checked-in file instead would be discarded on the next deploy. It takes effect
+// on the next deploy, so production may still be serving `/` without these
+// headers; check before assuming otherwise.
 //
 // script-src 'self' is the load-bearing directive: the built index.html loads
 // two external, same-origin scripts and no inline ones, so no hash or nonce is
