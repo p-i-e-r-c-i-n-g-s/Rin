@@ -63,9 +63,25 @@ async function serveSpaEntry(request: Request, env: Env) {
   return null;
 }
 
-// Rin had no security headers at all. Unlike an assets-first Worker, every
-// response here -- API, static asset and SPA entry -- is returned from
-// handleFetch, so this is the one place that covers all three.
+// Rin had no security headers at all. This adds them to every response that
+// handleFetch returns.
+//
+// THAT IS NOT EVERY RESPONSE THE SITE SERVES, and the original version of this
+// comment claimed it was. `[assets]` in wrangler.toml has no `run_worker_first`,
+// so Cloudflare's asset store answers any path matching a file in `dist/client`
+// WITHOUT INVOKING THE WORKER -- `tryServeAsset`/`serveSpaEntry` below only run
+// for requests that got here, which asset requests do not. Measured from a HAR
+// of production on 18 Sep 2026: `/`, `/assets/*.js`, `/assets/*.css`,
+// `/locales/*/translation.json` and the fonts carried NONE of these headers
+// (all `cf-cache-status: HIT`, `cfOrigin;dur=0`), while all 8 worker-served
+// paths carried all five.
+//
+// So the document itself has no CSP -- the one place CSP does anything. This is
+// structural, not a stale cache: a purge changes nothing. The fix is
+// `run_worker_first = true` (the boolean, NOT a path allowlist -- scoping it to
+// document paths served index.html in place of every API response in a sibling
+// repo), which this handler is already written for. Cost: the Worker is invoked
+// on every asset request.
 //
 // script-src 'self' is the load-bearing directive: the built index.html loads
 // two external, same-origin scripts and no inline ones, so no hash or nonce is

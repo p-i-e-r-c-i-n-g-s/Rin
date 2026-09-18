@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   buildWranglerObservabilityConfig,
+  formatDeployMessage,
   buildWranglerQueueConfig,
   buildWranglerTriggersConfig,
   collectWorkerSecrets,
@@ -81,5 +82,31 @@ describe("buildWranglerObservabilityConfig", () => {
 
   it("omits observability overrides for production deploys", () => {
     expect(buildWranglerObservabilityConfig(false)).toBe("");
+  });
+});
+
+describe("formatDeployMessage", () => {
+  // The marker exists because `wrangler deploy` ships the working tree, not a
+  // commit. Its only real requirement is that it cannot report a dirty deploy as
+  // a clean commit -- that is the inference this replaces, and the one that was
+  // wrong before.
+  it("reports a clean tree as the bare sha", () => {
+    expect(formatDeployMessage({ sha: "abc1234", dirty: false })).toBe("abc1234");
+  });
+
+  it("never reports a dirty tree as that sha", () => {
+    const dirty = formatDeployMessage({ sha: "abc1234", dirty: true });
+
+    expect(dirty).not.toBe("abc1234");
+    expect(dirty).toBe("abc1234-dirty");
+  });
+
+  it("says so when there is no git at all, rather than going blank", () => {
+    // An empty message renders as "no message" in `wrangler deployments list`,
+    // which is indistinguishable from a deploy that predates this marker.
+    const message = formatDeployMessage({ sha: null, dirty: false });
+
+    expect(message).toBe("no-git");
+    expect(message.length).toBeGreaterThan(0);
   });
 });

@@ -870,3 +870,166 @@ If this is ever automated, the honest fix is the one `deploy.yml` already
 gestures at — add the six secrets, re-enable that workflow (see the note above
 on how it is disabled), and let a merge be the deploy. Until then, **a merge is
 not a release**, and this file should not imply otherwise.
+
+## Verified live from a HAR — 18 September 2026
+
+First behavioural measurement of this site in production. Everything before this
+was read from config, from `main`, or from a Worker `modified_on` timestamp. It
+confirms the security fixes are deployed, and it finds that **one of them does
+not apply where it matters most.**
+
+HAR captured from a real browser, 28 entries, `2026-09-18T19:19:09Z`. A session
+cannot do this itself — the egress proxy refuses this zone — so this is the only
+kind of live evidence available here.
+
+### The security headers are live, and they do not reach the document
+
+`SECURITY_HEADERS` from PR #5 is **deployed and working**: all five headers are
+present on every response the Worker returns. So #5 is live, which also settles
+the older question — the 17 Sep deploy did carry the security audit fix set.
+
+They are absent from the front page. Not intermittently: structurally.
+
+    asset? hdrs?  st   path
+    YES    no     200  /
+    YES    no     200  /assets/index-qnGRV1dD.js
+    YES    no     200  /assets/index-BUSSL3yr.css
+    YES    no     200  /locales/en/translation.json
+    YES    no     200  /assets/remixicon-BCkO1-UF.woff2
+    no     YES    200  /api/config/client/bootstrap.js
+    no     YES    200  /api/feed
+    no     YES    200  /api/user/profile
+    no     YES    200  /api/feed/2
+    no     YES    200  /api/feed/adjacent/2
+    no     YES    200  /api/comment/2
+    no     YES    403  /favicon.ico  (x2)
+
+`asset?` is membership of `dist/client`, tested mechanically against the built
+manifest rather than by eye. **5 of 5 asset-store paths carry none of the four
+headers; 8 of 8 Worker paths carry all of them.** Zero exceptions. The other 8
+entries in the HAR are Cloudflare's own (`/cdn-cgi/rum`, the challenge platform,
+speculation rules) plus the refused prefetch below, none of which reach a Worker
+by definition.
+
+**Cause: asset-store-first routing.** `[assets]` in `wrangler.toml` has no
+`run_worker_first`, so a request whose path matches a file in `dist/client` is
+answered by Cloudflare's asset store and **the Worker never runs**. Corroborated
+by the responses themselves: every header-less response carries
+`cf-cache-status: HIT` and `server-timing: cfOrigin;dur=0` — the origin was not
+contacted — while every Worker response carries no `cf-cache-status` at all.
+
+**This is not a stale cache and a purge will not fix it.** That was the first
+reading — `cache-control: public, max-age=0, must-revalidate` with
+`cf-cache-status: HIT` looks exactly like an edge copy predating the deploy — and
+it is wrong. The comment in `fetch-handler.ts` asserting that "every response
+here — API, static asset and SPA entry — is returned from handleFetch" was wrong
+in the same direction, for the same reason: the Worker's own
+`tryServeAsset`/`serveSpaEntry` calls only run for requests that got to the
+Worker. That comment is now corrected in place.
+
+**Consequence: `/` has no CSP**, which is the one document where CSP does
+anything. `X-Frame-Options`, `Referrer-Policy` and `Permissions-Policy` are
+missing there too, and `frame-ancestors 'none'` is missing with them, so the
+front page is framable today.
+
+**Fix, one line, not applied:**
+
+    [assets]
+    directory = "./dist/client"
+    binding = "ASSETS"
+    run_worker_first = true
+
+The boolean, **not** a path allowlist — `run_worker_first` scoped to document
+paths silently served `index.html` in place of every `/api/` response in
+ears-pearcache, which is the sibling repo where this whole mechanism was first
+learned. This handler is already written for it: `route()` calls `tryServeAsset`
+and `serveSpaEntry` itself, so the Worker can serve every asset. Left unapplied
+because it invokes the Worker on every asset request — a CPU-billing and latency
+change that is the owner's call, and it needs a deploy, which was out of scope.
+
+### The 503 is a refused prefetch, and the response header says so
+
+    GET /feed/2 -> 503, empty body, 24ms
+      cf-speculation-refused: prefetch refused: disabled for worker requests
+      vary: sec-purpose
+
+It is the **only** request in the HAR carrying `sec-purpose: prefetch`, and the
+zone injects `speculation-rules: "/cdn-cgi/speculation"` on every response. So
+Cloudflare Speed Brain speculatively prefetched the next page, refused its own
+prefetch because the path is Worker-backed, and returned an empty 503 that no
+user ever sees — the real navigation fetched `/api/feed/2` and got 200.
+
+**Not a fault, and nothing to fix.** This also independently confirms the same
+conclusion reached for ears-pearcache's intermittent `/bandcamp` and `/directory`
+503s (empty body, `server: cloudflare`, no `cf-cache-status`, 24–98ms, fine on
+retry — an exact shape match). That repo's note records those as unobservable
+after 24 hours because the analytics window is one day. This capture happens to
+carry the cause **in a response header**, which is the evidence that was missing.
+If a 503 like this turns up again, read `cf-speculation-refused` before opening
+analytics.
+
+### The favicon is 403 — our own R2 host denies the Worker
+
+    GET /favicon.ico -> 403, text/plain, body = a Cloudflare error page
+    "This resource is blocked by this account's Default-Deny policy"  (code 1050)
+    "... | images.pearcache.com | Cloudflare"
+
+`/favicon.ico` is not a file in `dist/client` (`favicon.png` is), so it reaches
+the Worker, `FaviconService` misses the stored `images/favicon.webp`, falls back
+to building one from `site.avatar`, and fetches that avatar from
+`S3_ACCESS_HOST` = `https://images.pearcache.com` — which answers the Worker's
+server-side fetch with a Cloudflare Access **Default-Deny**. The 403 and the
+block page are then passed straight through as `c.text(...)`, which is why a
+`text/plain` response contains an HTML document.
+
+The site has had no favicon for as long as that policy has been in place. Fixing
+it is an Access policy change on `images.pearcache.com`, not a code change —
+note the estate review recorded that hostname as public with a
+`bypass (everyone)` policy, so either that changed or the bypass does not cover
+this path. Verify before editing anything.
+
+### What this HAR does NOT show
+
+`GET /api/comment/2` returned `[]` — post 2 has no comments. **An empty array
+cannot demonstrate that a field is absent**, so the other half of #5, dropping
+`guestEmail` from the comment response, is **untested in production**. It passes
+its unit tests and it is in the deployed bundle; it has not been observed. To
+close it, capture a HAR on a post that actually has a guest comment.
+
+Also confirmed healthy, for the record: `nosniff` and HSTS
+(`max-age=15552000; includeSubDomains`) on everything, `/cdn-cgi/rum` returning
+**204** three times (the load-bearing observation for Web Analytics, not the
+beacon's own 200), and zero CSP-blocked requests.
+
+## The deploy now records which commit it shipped
+
+`wrangler deploy` ships the working tree, not a commit, so nothing anywhere
+recorded what was serving — "is the fix live?" was answered by correlating the
+Worker's `modified_on` against `git log` by hand, which is an inference, and a
+wrong one for any deploy carrying uncommitted files.
+
+`runCloudflareDeploy` now passes `--message <short-sha>` to both of its
+`wrangler deploy` calls. The annotation comes back from the deployments API and
+from `wrangler deployments list`, so the answer is read from the same place as
+the timestamp:
+
+```bash
+bunx wrangler deployments list
+```
+
+`formatDeployMessage` has one requirement — **it must not claim more than it
+knows.** A dirty tree is labelled `<sha>-dirty`, never that bare sha; absent git
+is `no-git`, not an empty message that would read identically to a deploy made
+before this existed. It is **not** a gate and does not refuse a dirty deploy;
+hotfixing from a working tree is how this site is actually operated, and a guard
+that blocked it would just be bypassed.
+
+Verified: `--message` is accepted by wrangler **4.71.0**, the version pinned in
+`package.json`, against this actual config via `wrangler deploy --dry-run`. That
+check is not ceremony — in a sibling repo a `wrangler kv` invocation that worked
+locally failed on a runner because a flag did not exist in the version that ran
+there, with an error that read like a malformed command.
+
+**The first deploy after this merges is the first one whose commit is recorded.**
+Everything before it stays an inference, including the 17 Sep deploy that this
+HAR shows carried the security headers.

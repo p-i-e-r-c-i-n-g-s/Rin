@@ -29,6 +29,49 @@ const WORKER_SECRET_KEYS = [
   "S3_SECRET_ACCESS_KEY",
 ] as const;
 
+/**
+ * `wrangler deploy` ships the working tree, not a commit. Nothing in Cloudflare
+ * has ever recorded WHICH commit is serving, so the only way to answer "is the
+ * fix live?" was to read the Worker's `modified_on` timestamp and correlate it
+ * against `git log` by hand -- an inference, and a wrong one whenever a deploy
+ * carried uncommitted files.
+ *
+ * `--message` annotates the Worker Version, and that annotation is returned by
+ * the deployments API (and `wrangler deployments list`), which turns "which
+ * commit is live" into a stored fact read from the same place as the timestamp.
+ *
+ * The label's one job is to never claim more than it knows:
+ *
+ *  - a dirty tree deploys files that exist in no commit, so it is labelled
+ *    `<sha>-dirty` rather than reported as that sha;
+ *  - no git, or a repo with no commits, is `no-git`, not a blank message that
+ *    would read as "nobody bothered".
+ *
+ * This is deliberately NOT a gate. It does not refuse a dirty deploy -- hotfixes
+ * from a working tree are how this site is actually operated. It only refuses to
+ * describe one as a clean commit.
+ */
+export function formatDeployMessage({ sha, dirty }: { sha: string | null; dirty: boolean }) {
+  if (!sha) {
+    return "no-git";
+  }
+  return dirty ? `${sha}-dirty` : sha;
+}
+
+async function resolveDeployMessage() {
+  const sha = await $`git rev-parse --short HEAD`.quiet().nothrow();
+  const status = await $`git status --porcelain`.quiet().nothrow();
+
+  if (sha.exitCode !== 0 || status.exitCode !== 0) {
+    return formatDeployMessage({ sha: null, dirty: false });
+  }
+
+  return formatDeployMessage({
+    sha: sha.text().trim(),
+    dirty: status.text().trim().length > 0,
+  });
+}
+
 function isQueueAlreadyPresentError(stderr: string) {
   return stderr.includes("already exists") || stderr.includes("already taken") || stderr.includes("[code: 11009]");
 }
@@ -295,12 +338,14 @@ export async function runCloudflareDeploy(target: "all" | "server" | "client" = 
       await updateMigrationVersion("remote", dbName, lastVersion);
     }
   }
+  const deployMessage = await resolveDeployMessage();
+
   if (target === "server") {
-    await $`${bunExec} x wrangler deploy`;
+    await $`${bunExec} x wrangler deploy --message ${deployMessage}`;
     await syncWorkerSecrets(workerName);
     return;
   }
 
-  await $`${bunExec} x wrangler deploy`;
+  await $`${bunExec} x wrangler deploy --message ${deployMessage}`;
   await syncWorkerSecrets(workerName);
 }
