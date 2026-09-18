@@ -89,21 +89,29 @@ export function collectWorkerSecrets(source: Record<string, string | undefined> 
   return secrets;
 }
 
+/** Returns false only when the sync could not run, so the caller can retry it. */
 async function syncWorkerSecrets(workerName: string) {
   const secrets = collectWorkerSecrets();
   const secretKeys = Object.keys(secrets);
 
   if (secretKeys.length === 0) {
     console.log("ℹ️ No worker secrets provided; skipping secret sync");
-    return;
+    return true;
   }
 
   const tempFile = ".wrangler-secrets.json";
   await Bun.write(tempFile, JSON.stringify(secrets, null, 2));
 
   try {
-    await $`${bunExec} x wrangler secret bulk ${tempFile} --name ${workerName}`;
+    const { exitCode, stderr } = await $`${bunExec} x wrangler secret bulk ${tempFile} --name ${workerName}`.nothrow();
+    if (exitCode !== 0) {
+      // Expected on the very first deploy: the Worker does not exist yet, so
+      // there is nothing to attach secrets to.
+      console.log(`ℹ️ Secret sync could not run yet: ${stderr.toString().trim().split("\n").pop()}`);
+      return false;
+    }
     console.log(`✅ Synced ${secretKeys.length} worker secret(s)`);
+    return true;
   } finally {
     await unlink(tempFile).catch(() => {});
   }
@@ -376,12 +384,29 @@ export async function runCloudflareDeploy(target: "all" | "server" | "client" = 
   }
   const deployMessage = await resolveDeployMessage();
 
-  if (target === "server") {
-    await $`${bunExec} x wrangler deploy --message ${deployMessage}`;
-    await syncWorkerSecrets(workerName);
-    return;
-  }
+  // Secrets are synced BEFORE the deploy, and the order is the whole point.
+  //
+  // `wrangler secret bulk` creates a Worker *version* of its own, because secrets
+  // are bindings. Running it after `wrangler deploy` therefore stacks an
+  // unannotated version on top of the annotated one, and `--message` then names a
+  // version that is no longer serving. Observed on the marker's first real use,
+  // 18 Sep 2026: the deploy recorded `7886b9e`, and the secret sync seven seconds
+  // later superseded it with `Message: -`. A marker naming the wrong version is
+  // worse than no marker, because it reads as authoritative.
+  //
+  // Secrets persist across deploys, so putting them first costs nothing: the
+  // final version carries both the code and the secrets, and it is the annotated
+  // one. Verify after any change here with `wrangler deployments status` -- the
+  // active version's Message must be the sha.
+  const secretsSynced = await syncWorkerSecrets(workerName);
 
   await $`${bunExec} x wrangler deploy --message ${deployMessage}`;
-  await syncWorkerSecrets(workerName);
+
+  if (!secretsSynced) {
+    // Only reachable on the first deploy of a new Worker, where the pre-deploy
+    // sync had nothing to attach to. This leaves an unannotated version on top,
+    // which is acceptable exactly once -- nobody asks which commit is live on a
+    // Worker that has only ever been deployed once.
+    await syncWorkerSecrets(workerName);
+  }
 }

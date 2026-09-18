@@ -1034,6 +1034,45 @@ there, with an error that read like a malformed command.
 Everything before it stays an inference, including the 17 Sep deploy that this
 HAR shows carried the security headers.
 
+### The marker named the wrong version on its very first use
+
+Deployed 18 Sep 2026 at 20:05:04Z with `Message: 7886b9e` — and seven seconds
+later `wrangler deployments status` reported the active version as a *different*
+one, `cff2e38f`, carrying `Message: -`.
+
+**Cause: `wrangler secret bulk` creates a Worker version of its own**, because
+secrets are bindings. `syncWorkerSecrets` ran after `wrangler deploy`, so it
+stacked an unannotated version on top of the annotated one. The marker was
+therefore describing a version that had already been superseded — and doing it
+with complete confidence, which is worse than not having it. `wrangler deploy`
+being the last *command* is not the same as its version being the last one.
+
+**Fixed by ordering, not by adding anything:** secrets are synced **before** the
+deploy, so the annotated deploy is the last version created. Secrets persist
+across deploys, so this costs nothing — the final version carries both. The only
+exception is the first deploy of a brand-new Worker, where the pre-deploy sync has
+nothing to attach to; it then runs again afterwards, which leaves one unannotated
+version on a Worker nobody is yet asking questions about.
+
+Two notes for anyone touching that function:
+
+- **`syncWorkerSecrets` no longer throws**, it returns whether it ran, because the
+  caller now has to decide what to do about a sync that could not happen yet.
+- **The `if (target === "server")` branch was deleted, not rewritten.** Its body
+  was byte-identical to the fallthrough beneath it — `deploy` then sync, twice.
+  `target` is already handled earlier, where it decides whether the client is
+  built.
+
+**Verify this after any change to the tail of `runCloudflareDeploy`:**
+
+```bash
+bunx wrangler deployments status
+```
+
+The **active** version's `Message` must be the sha. Reading `deployments list` is
+not enough — the annotated version was present in that listing the whole time
+while a later one served.
+
 ### Measured: `run_worker_first = ["/"]` closes it, and the allowlist trap does not apply here
 
 Run against `wrangler dev` on 18 Sep 2026, three configs, same probe set. `CSP`
