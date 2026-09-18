@@ -96,11 +96,21 @@ async function serveSpaEntry(request: Request, env: Env) {
 // falls through to the Worker. Verified, not assumed -- `/api/feed` and
 // `/api/user/profile` both still returned `application/json` under `["/"]`.
 //
-// `["/"]` is now set by `buildWranglerAssetsConfig()` in
-// `cli/src/tasks/deploy-cf.ts`, which GENERATES `wrangler.toml` -- editing the
-// checked-in file instead would be discarded on the next deploy. It takes effect
-// on the next deploy, so production may still be serving `/` without these
-// headers; check before assuming otherwise.
+// `["/"]` is set by `buildWranglerAssetsConfig()` in
+// `cli/src/tasks/deploy-cf.ts`, which GENERATES `wrangler.toml` -- editing that
+// file directly is discarded on the next deploy.
+//
+// Deployed and CONFIRMED live on 18 Sep 2026: a browser HAR of `/` carries all
+// five of these headers, and the CSP byte-matches the constant below.
+//
+// One trap that this fix created. `cf-cache-status: HIT` is STILL on `/`, because
+// `withSecurityHeaders` copies every header off the internal
+// `env.ASSETS.fetch()` response, including that one. It no longer means the
+// Worker was bypassed. The signal that does distinguish the two is
+// `server-timing`: before the fix `/` carried `cfCacheStatus;desc="HIT"` and
+// `cfEdge;dur=10,cfOrigin;dur=0`; after it, only `cfExtPri`. Do not re-diagnose
+// this from `cf-cache-status` alone -- reading it that way is what made this look
+// like a stale edge cache for the first half of the investigation.
 //
 // script-src 'self' is the load-bearing directive: the built index.html loads
 // two external, same-origin scripts and no inline ones, so no hash or nonce is
