@@ -84,11 +84,14 @@ Deploy both frontend and backend to Cloudflare with a single command:
 bun run deploy
 
 # Deploy only backend
-bun run deploy:server
+bun run deploy --server
 
-# Deploy only frontend
-bun run deploy:client
+# Deploy only frontend to Cloudflare Pages
+bun run deploy --client
 ```
+
+> There are no `deploy:server` / `deploy:client` scripts -- the target is a flag
+> on the one `deploy` command.
 
 **Required environment variables:**
 
@@ -106,9 +109,25 @@ The deployment script will automatically:
 
 - Create D1 database if it doesn't exist
 - Derive `S3_*` storage settings from `R2_BUCKET_NAME` only when it is explicitly set
-- Deploy backend to Workers
-- Build and deploy frontend to Pages
+- Sync worker secrets from the environment
+- Deploy backend to Workers, annotating the version with the deployed commit
+- Build the frontend and serve it from the Worker's own asset store
 - Run database migrations
+
+`bun run deploy` does **not** use Cloudflare Pages: the built client is served
+through the Worker's `[assets]` binding. `--client` is the only path that runs
+`wrangler pages deploy`.
+
+Because `wrangler deploy` uploads the working tree rather than a commit, the
+deploy passes `--message <short-sha>` so the serving version names its own
+commit (`-dirty` when the tree was not clean). Read it back with:
+
+```bash
+bunx wrangler deployments status
+```
+
+Use `status`, not `deployments list`: `list` shows every version, and an
+annotated one can sit in it while a later, unannotated one is actually serving.
 
 ### GitHub Actions Workflows
 
@@ -116,8 +135,14 @@ The repository includes several automated workflows:
 
 - **`ci.yml`** - Runs type checking and formatting validation on every push/PR
 - **`test.yml`** - Runs comprehensive tests (server + client) with coverage reporting
-- **`build.yml`** - Builds the project and triggers deployment
+- **`build.yml`** - Builds the project, and on upstream triggers deployment
 - **`deploy.yml`** - Deploys to Cloudflare Pages and Workers
+
+> **In this fork, `deploy.yml` is disabled and nothing deploys from CI.** Its
+> state is `disabled_manually` in GitHub, which the YAML itself cannot show, and
+> the repository holds none of the secrets below. Every release is a hand-run
+> `bun run deploy`, so **merging to `main` is not releasing.** Check
+> `bunx wrangler deployments status` for what is actually live.
 
 **Required secrets (Repository Settings → Secrets and variables → Actions):**
 

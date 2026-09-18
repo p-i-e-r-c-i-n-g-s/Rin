@@ -1148,3 +1148,73 @@ that renders perfectly with no CSP and no `X-Frame-Options`, and nothing else in
 this repo would notice. One test asserts the line is present; another asserts it
 is **not** `true`, so widening it is a deliberate edit rather than a silent
 latency regression through the smart-placement colo.
+
+## The front page's CSP, confirmed live — 18 September 2026
+
+`run_worker_first = ["/"]` was deployed at **20:12:43Z** (version
+`53499392`, `Message: d394409`) and confirmed by a browser HAR captured at
+**20:17:01Z**, 4m18s later. `/` carries all four headers and the CSP
+byte-matches the `CSP` constant in `fetch-handler.ts`:
+
+    content-security-policy: default-src 'self'; script-src 'self'; ... frame-ancestors 'none'; ...
+    x-frame-options:         DENY
+    referrer-policy:         strict-origin-when-cross-origin
+    permissions-policy:      geolocation=(), microphone=(), camera=(), payment=()
+
+So the front page is no longer framable, and this is the first end-to-end
+confirmation in this repo's history: measured locally, deployed, then observed
+live. The static assets still carry none of them, which is the design working —
+they stay on the asset-store fast path, where a CSP header on a `.woff2` does
+nothing.
+
+### `cf-cache-status: HIT` no longer means the Worker was bypassed
+
+This fix inverted the signal used to find the bug, so the next person to read it
+the old way will reach the opposite wrong conclusion.
+
+`/` **still** answers `cf-cache-status: HIT`. It is now passed through from the
+Worker's own internal `env.ASSETS.fetch()`, because `withSecurityHeaders` copies
+every header off that response. What actually changed is `server-timing`:
+
+| | before the fix | after |
+|---|---|---|
+| `cf-cache-status` | `HIT` | `HIT` (unchanged!) |
+| `server-timing` | `cfCacheStatus;desc="HIT"`, `cfEdge;dur=10,cfOrigin;dur=0`, `cfExtPri` | `cfExtPri` only |
+
+**`cfOrigin;dur=0` is the discriminator**, not `cf-cache-status`. Reading `HIT` as
+"served from the edge without the Worker" is exactly what made this look like a
+stale cache for the first half of the investigation, and it is now wrong in the
+other direction too.
+
+### Unchanged by this, and still open
+
+- **`/feed/2` 503** — identical cause, `cf-speculation-refused: prefetch refused:
+  disabled for worker requests` with `sec-purpose: prefetch` on the request. Not
+  a fault; not affected by the routing change.
+- **`/favicon.ico` 403** — still the Cloudflare Access **Default-Deny** page from
+  `images.pearcache.com`. An Access policy change, not a code change.
+- **`guestEmail` is still unobserved.** `/api/comment/2` returned `[]` in this
+  capture too, because post 2 has no comments, and an empty array cannot show
+  that a field is absent. Needs a HAR on a post with a guest comment. Do not
+  record this as verified until then.
+
+## README corrections — 18 September 2026
+
+Three things the README asserted were wrong, all checked rather than assumed:
+
+- **`bun run deploy:server` / `deploy:client` do not exist.** `package.json` has
+  only `deploy`; the target is a flag (`--server` / `--client`).
+- **`bun run deploy` does not deploy the frontend to Pages.** `wrangler pages
+  deploy` is reachable only when `target === "client"`; the default path serves
+  the built client through the Worker's `[assets]` binding. Believing the Pages
+  claim is a good way never to look at `[assets]`, which is where the missing-CSP
+  bug lived.
+- **`deploy.yml` is `disabled_manually` and this fork holds none of the Actions
+  secrets**, so "`build.yml` … triggers deployment" is false here. The README now
+  says so, because the previous text actively pointed away from the fact that
+  every release is a hand-run `bun run deploy`.
+
+`README_zh_CN.md` is upstream's translation and was **not** updated — it now
+disagrees with `README.md` on these three points. Left alone deliberately rather
+than machine-translating fork-specific operational notes; the authoritative
+statement of all of this is here in CLAUDE.md.
