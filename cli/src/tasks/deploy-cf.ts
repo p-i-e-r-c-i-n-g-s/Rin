@@ -29,6 +29,49 @@ const WORKER_SECRET_KEYS = [
   "S3_SECRET_ACCESS_KEY",
 ] as const;
 
+/**
+ * `wrangler deploy` ships the working tree, not a commit. Nothing in Cloudflare
+ * has ever recorded WHICH commit is serving, so the only way to answer "is the
+ * fix live?" was to read the Worker's `modified_on` timestamp and correlate it
+ * against `git log` by hand -- an inference, and a wrong one whenever a deploy
+ * carried uncommitted files.
+ *
+ * `--message` annotates the Worker Version, and that annotation is returned by
+ * the deployments API (and `wrangler deployments list`), which turns "which
+ * commit is live" into a stored fact read from the same place as the timestamp.
+ *
+ * The label's one job is to never claim more than it knows:
+ *
+ *  - a dirty tree deploys files that exist in no commit, so it is labelled
+ *    `<sha>-dirty` rather than reported as that sha;
+ *  - no git, or a repo with no commits, is `no-git`, not a blank message that
+ *    would read as "nobody bothered".
+ *
+ * This is deliberately NOT a gate. It does not refuse a dirty deploy -- hotfixes
+ * from a working tree are how this site is actually operated. It only refuses to
+ * describe one as a clean commit.
+ */
+export function formatDeployMessage({ sha, dirty }: { sha: string | null; dirty: boolean }) {
+  if (!sha) {
+    return "no-git";
+  }
+  return dirty ? `${sha}-dirty` : sha;
+}
+
+async function resolveDeployMessage() {
+  const sha = await $`git rev-parse --short HEAD`.quiet().nothrow();
+  const status = await $`git status --porcelain`.quiet().nothrow();
+
+  if (sha.exitCode !== 0 || status.exitCode !== 0) {
+    return formatDeployMessage({ sha: null, dirty: false });
+  }
+
+  return formatDeployMessage({
+    sha: sha.text().trim(),
+    dirty: status.text().trim().length > 0,
+  });
+}
+
 function isQueueAlreadyPresentError(stderr: string) {
   return stderr.includes("already exists") || stderr.includes("already taken") || stderr.includes("[code: 11009]");
 }
@@ -90,6 +133,44 @@ export function buildR2BucketInfo(r2BucketName: string, accountId: string): R2Bu
     endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
     accessHost: `https://${r2BucketName}.${accountId}.r2.dev`,
   };
+}
+
+/**
+ * `run_worker_first = ["/"]` is a SECURITY control, not a performance tweak.
+ *
+ * Without it, Cloudflare's asset store answers any path matching a file in
+ * `dist/client` and the Worker never runs, so `withSecurityHeaders` in
+ * `server/src/runtime/fetch-handler.ts` never wraps those responses.
+ * `index.html` is such a file, so `/` -- the site's most-visited URL -- shipped
+ * with no CSP and no X-Frame-Options, i.e. framable, while every other route had
+ * both. Measured from a production HAR and reproduced under `wrangler dev` on
+ * 18 Sep 2026; the table is in CLAUDE.md.
+ *
+ * `["/"]` and not `true`: `/` is the only document the asset store can answer.
+ * `index.html` is the one HTML file in `dist/client`, `/index.html` answers
+ * 307 -> `/`, and `/about`, `/timeline`, `/feed/2` and friends match no file, so
+ * they already reach the Worker and are already wrapped. `true` would also route
+ * JS, CSS, fonts and locale JSON through the Worker, where these headers do
+ * nothing -- CSP and X-Frame-Options are enforced per document, not per
+ * subresource -- and `[placement] mode = "smart"` means that detour leaves the
+ * local edge.
+ *
+ * This is an ALLOWLIST: any path not listed goes to the asset store first. It is
+ * safe here only because no `not_found_handling` is set, so a path matching no
+ * file falls through to the Worker -- which is what keeps `/api/*` working.
+ * Verified, not assumed: `/api/feed` and `/api/user/profile` both still returned
+ * `application/json` under `["/"]`. In ears-pearcache, which DOES set
+ * `not_found_handling`, this same shape served `index.html` in place of every API
+ * response. **If `not_found_handling` is ever added to this config, re-verify
+ * `/api/*` before shipping it.**
+ */
+export function buildWranglerAssetsConfig() {
+  return stripIndent(`
+    [assets]
+    directory = "./dist/client"
+    binding = "ASSETS"
+    run_worker_first = ["/"]
+  `);
 }
 
 export function buildWranglerTriggersConfig(preview = false) {
@@ -197,9 +278,7 @@ export async function runCloudflareDeploy(target: "all" | "server" | "client" = 
       main = "${serverMain}"
       compatibility_date = "2026-01-20"
 
-      [assets]
-      directory = "./dist/client"
-      binding = "ASSETS"
+      ${buildWranglerAssetsConfig()}
       ${buildWranglerTriggersConfig(preview)}
       ${buildWranglerObservabilityConfig(preview)}
 
@@ -295,12 +374,14 @@ export async function runCloudflareDeploy(target: "all" | "server" | "client" = 
       await updateMigrationVersion("remote", dbName, lastVersion);
     }
   }
+  const deployMessage = await resolveDeployMessage();
+
   if (target === "server") {
-    await $`${bunExec} x wrangler deploy`;
+    await $`${bunExec} x wrangler deploy --message ${deployMessage}`;
     await syncWorkerSecrets(workerName);
     return;
   }
 
-  await $`${bunExec} x wrangler deploy`;
+  await $`${bunExec} x wrangler deploy --message ${deployMessage}`;
   await syncWorkerSecrets(workerName);
 }

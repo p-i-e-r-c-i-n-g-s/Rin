@@ -1,6 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import {
+  buildWranglerAssetsConfig,
   buildWranglerObservabilityConfig,
+  formatDeployMessage,
   buildWranglerQueueConfig,
   buildWranglerTriggersConfig,
   collectWorkerSecrets,
@@ -81,5 +83,58 @@ describe("buildWranglerObservabilityConfig", () => {
 
   it("omits observability overrides for production deploys", () => {
     expect(buildWranglerObservabilityConfig(false)).toBe("");
+  });
+});
+
+describe("formatDeployMessage", () => {
+  // The marker exists because `wrangler deploy` ships the working tree, not a
+  // commit. Its only real requirement is that it cannot report a dirty deploy as
+  // a clean commit -- that is the inference this replaces, and the one that was
+  // wrong before.
+  it("reports a clean tree as the bare sha", () => {
+    expect(formatDeployMessage({ sha: "abc1234", dirty: false })).toBe("abc1234");
+  });
+
+  it("never reports a dirty tree as that sha", () => {
+    const dirty = formatDeployMessage({ sha: "abc1234", dirty: true });
+
+    expect(dirty).not.toBe("abc1234");
+    expect(dirty).toBe("abc1234-dirty");
+  });
+
+  it("says so when there is no git at all, rather than going blank", () => {
+    // An empty message renders as "no message" in `wrangler deployments list`,
+    // which is indistinguishable from a deploy that predates this marker.
+    const message = formatDeployMessage({ sha: null, dirty: false });
+
+    expect(message).toBe("no-git");
+    expect(message.length).toBeGreaterThan(0);
+  });
+});
+
+describe("buildWranglerAssetsConfig", () => {
+  it("declares the asset store binding and directory", () => {
+    const config = buildWranglerAssetsConfig();
+
+    expect(config).toContain("[assets]");
+    expect(config).toContain('directory = "./dist/client"');
+    expect(config).toContain('binding = "ASSETS"');
+  });
+
+  it("keeps run_worker_first, without which the front page loses every security header", () => {
+    // The asset store answers `/` from index.html and never invokes the Worker,
+    // so withSecurityHeaders does not run and `/` ships with no CSP and no
+    // X-Frame-Options. Nothing reports that -- the page renders fine. If this
+    // line is ever dropped from the generated config, this is the only thing
+    // that will notice.
+    expect(buildWranglerAssetsConfig()).toContain('run_worker_first = ["/"]');
+  });
+
+  it("scopes run_worker_first to an allowlist rather than every asset request", () => {
+    // `true` also works, but routes JS/CSS/fonts/locale JSON through the Worker
+    // -- where these headers do nothing, being per-document -- and past the
+    // smart-placement colo. Widening it should be a deliberate edit here, not a
+    // silent latency regression.
+    expect(buildWranglerAssetsConfig()).not.toContain("run_worker_first = true");
   });
 });
