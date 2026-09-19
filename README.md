@@ -6,7 +6,6 @@ English | [简体中文](./README_zh_CN.md)
 ![GitHub branch check runs](https://img.shields.io/github/check-runs/openRin/Rin/main?style=for-the-badge)
 ![GitHub top language](https://img.shields.io/github/languages/top/openRin/Rin?style=for-the-badge)
 ![GitHub License](https://img.shields.io/github/license/openRin/Rin?style=for-the-badge)
-![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/openRin/Rin/deploy.yml?style=for-the-badge)
 
 [![Discord](https://img.shields.io/badge/Discord-openRin-red?style=for-the-badge&color=%236e7acc)](https://discord.gg/JWbSTHvAPN)
 [![Telegram](https://img.shields.io/badge/Telegram-openRin-red?style=for-the-badge&color=%233390EC)](https://t.me/openRin)
@@ -136,13 +135,25 @@ The repository includes several automated workflows:
 - **`ci.yml`** - Runs type checking and formatting validation on every push/PR
 - **`test.yml`** - Runs comprehensive tests (server + client) with coverage reporting
 - **`build.yml`** - Builds the project, and on upstream triggers deployment
-- **`deploy.yml`** - Deploys to Cloudflare Pages and Workers
+- **`deploy.yml`** - Deploys to Workers. Its deploy step runs `bun run deploy`, so it takes the same path as a hand deploy and **does not** use Cloudflare Pages, despite the name of this workflow.
 
 > **In this fork, `deploy.yml` is disabled and nothing deploys from CI.** Its
 > state is `disabled_manually` in GitHub, which the YAML itself cannot show, and
 > the repository holds none of the secrets below. Every release is a hand-run
 > `bun run deploy`, so **merging to `main` is not releasing.** Check
 > `bunx wrangler deployments status` for what is actually live.
+>
+> It has never deployed once. `deploy.yml` has exactly two runs, both on
+> 2026-09-17, and both failed at `Deploy to Cloudflare` with `it's necessary to
+> set a CLOUDFLARE_API_TOKEN`. Verified 2026-09-19: `actions/secrets` and
+> `actions/variables` each return `total_count: 0`, and no `production`
+> environment exists. **Re-enabling the workflow without first adding the
+> secrets below just reproduces those two failures.**
+>
+> The upstream `deploy.yml` status badge was removed from the top of this file
+> for the same reason. It read `openRin/Rin`, so it reported *upstream's* deploy
+> health on a fork that does not deploy from CI at all — a green badge standing
+> in for a check that never ran here.
 
 **Required secrets (Repository Settings → Secrets and variables → Actions):**
 
