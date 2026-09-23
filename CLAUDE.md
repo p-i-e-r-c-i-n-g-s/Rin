@@ -988,6 +988,24 @@ note the estate review recorded that hostname as public with a
 `bypass (everyone)` policy, so either that changed or the bypass does not cover
 this path. Verify before editing anything.
 
+**Checked 23 Sep 2026: the bypass exists, and it is only this Worker it fails
+for.** The `images` Access app (hostname destination, `bypass` / everyone) was
+created 10 Sep 06:20Z, before the 18 Sep HAR. Zone analytics for 15–22 Sep,
+split by `requestSource`, show:
+- every 403 on `images.pearcache.com/images/*` is `edgeWorkerFetch`, almost
+  all for `images/126b0bd8….png`, this avatar
+- browser (`eyeball`) requests for `/images/*` get 200/304 through the same
+  app
+
+So the bypass works for people and not for `rin-server`'s own subrequest. Why
+is not established. The one-line Access fix this note anticipated would
+therefore not be enough. A code-side option that avoids the question entirely
+is to read the avatar through the S3 API the Worker already holds credentials
+for, instead of an HTTP fetch of `S3_ACCESS_HOST`. Note that the deployed
+`rin-server` has **no `r2_bucket` binding** (its bindings list shows only the
+`S3_*` variables and secrets), so any code path that expects `R2_BUCKET`
+should be checked against that. Not changed.
+
 ### What this HAR does NOT show
 
 `GET /api/comment/2` returned `[]` — post 2 has no comments. **An empty array
