@@ -808,7 +808,7 @@ Read from the Cloudflare API, which is run evidence rather than config:
 - `blog.pearcache.com` is a **custom domain** bound to the service
   `rin-server`, production — so this repo's worker is the thing serving it.
 - **All 10 deployments and all 20 versions** of `rin-server` carry
-  `source: "wrangler"` and `author_email: pearsonphilpot@gmail.com`. There is no
+  `source: "wrangler"` and `author_email` set to the owner's account email. There is no
   other source in the history.
 - The worker's `modified_on` is **2026-09-10T06:46:48Z**, identical to the
   newest deployment, and there are **zero deployments after it**.
