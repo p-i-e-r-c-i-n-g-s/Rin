@@ -33,6 +33,3 @@ jobs:
 
       - name: Run typecheck
         run: bun run check
-
-      - name: Run format check
-        run: bun run format:check

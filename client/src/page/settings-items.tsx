@@ -174,7 +174,7 @@ export function ItemWithUpload({
           header={<SettingsCardHeader title={title} description={description} />}
           action={
             <>
-              {loading && <ReactLoading width="1em" height="1em" type="spin" color="#FC466B" />}
+              {loading && <ReactLoading width="1em" height="1em" type="spin" color="var(--accent)" />}
               <input ref={inputRef} type="file" className="hidden" accept={accept} onChange={handleFileChange} />
               <Button
                 onClick={() => {

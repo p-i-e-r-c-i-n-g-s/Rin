@@ -124,7 +124,7 @@ export function CompatTasksPage() {
 
       {loading ? (
         <div className="flex items-center gap-3 py-8 text-sm text-neutral-500 dark:text-neutral-400">
-          <ReactLoading width="1.25em" height="1.25em" type="spin" color="#FC466B" />
+          <ReactLoading width="1.25em" height="1.25em" type="spin" color="var(--accent)" />
           <span>{t("compat_tasks.loading")}</span>
         </div>
       ) : null}

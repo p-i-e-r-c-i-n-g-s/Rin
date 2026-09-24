@@ -110,10 +110,6 @@ bun run clean
 # 运行类型检查
 bun run check
 
-# 格式化代码
-bun run format:write
-bun run format:check
-
 # 运行测试
 bun run test              # 运行所有测试
 bun run test:client       # 仅运行客户端测试

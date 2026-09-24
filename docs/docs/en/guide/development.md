@@ -110,10 +110,6 @@ bun run clean
 # Run type checking
 bun run check
 
-# Format code
-bun run format:write
-bun run format:check
-
 # Run tests
 bun run test              # Run all tests
 bun run test:client       # Run client tests only

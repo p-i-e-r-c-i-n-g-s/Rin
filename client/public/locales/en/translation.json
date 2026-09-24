@@ -507,7 +507,7 @@
       "desc": "Choose the accent color used by buttons, highlights, and interactive elements",
       "custom": "Custom",
       "options": {
-        "rose": "Rose",
+        "default": "Default",
         "violet": "Violet",
         "blue": "Blue",
         "teal": "Teal",

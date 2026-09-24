@@ -421,7 +421,10 @@ a[href^="/hashtag/"] {
   color: var(--text-body) !important;
 }
 
-.toc-content > p:first-of-type::first-letter {
+/* The first paragraph with no image in it. A post that opens with an image
+   renders it inside a <p>, so p:first-of-type had no letter to enlarge and
+   the drop cap vanished. */
+.toc-content > p:not(:has(img)):not(p:not(:has(img)) ~ p)::first-letter {
   float: left;
   padding: 6px 10px 0 0;
   color: var(--accent);

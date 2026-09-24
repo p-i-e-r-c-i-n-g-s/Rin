@@ -507,7 +507,7 @@
       "desc": "选择按钮、高亮和交互元素使用的强调色",
       "custom": "自定义",
       "options": {
-        "rose": "玫红",
+        "default": "默认",
         "violet": "紫色",
         "blue": "蓝色",
         "teal": "青绿",
