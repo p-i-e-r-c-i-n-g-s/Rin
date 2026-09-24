@@ -1,5 +1,7 @@
-import Editor from '@monaco-editor/react';
+import Editor, { loader } from '@monaco-editor/react';
+import * as monaco from 'monaco-editor';
 import { editor, Range, Selection } from 'monaco-editor';
+import EditorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker';
 import React, { useRef, useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import Loading from 'react-loading';
@@ -8,6 +10,13 @@ import { useAlert } from "./dialog";
 import { useColorMode } from "../utils/darkModeUtils";
 import { buildMarkdownImage, uploadImageFile } from "../utils/image-upload";
 import { Markdown } from "./markdown";
+
+// Use the Monaco this bundle already contains. By default @monaco-editor/react
+// fetches a second copy from cdn.jsdelivr.net, which the CSP (script-src 'self')
+// blocks, so the editor sat on "Loading..." forever. Markdown needs only the
+// base editor worker, served from our own origin.
+self.MonacoEnvironment = { getWorker: () => new EditorWorker() };
+loader.config({ monaco });
 
 
 interface MarkdownEditorProps {

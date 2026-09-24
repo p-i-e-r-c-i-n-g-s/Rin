@@ -1458,3 +1458,29 @@ lives in the tokens at the end of `client/src/index.css`.
 - **Known limits.** The drop cap styles the first paragraph only, so a post
   that opens with an image has none. The `terminal-nav-*` classes used by the
   classic header layout are now unstyled. Production uses the compact layout.
+
+## The post editor was stuck on "Loading..." — the CSP blocked Monaco's CDN, fixed 24 September 2026
+
+Opening `/admin/writing/:id` showed "Loading..." forever. The owner's HAR
+showed `cdn.jsdelivr.net/npm/monaco-editor@0.43.0/min/vs/loader.js` blocked
+(status 0), and the console said why: `script-src 'self'`.
+
+- **It broke when the security headers went live (17–18 Sep), not with the
+  redesign.** The sweep had flagged it as plausible. Nobody had edited a post
+  since then.
+- **Cause:** `@monaco-editor/react` loads its own Monaco from jsdelivr by
+  default. The component *also* imported `monaco-editor` 0.50.0 from npm for
+  `Range` and `Selection`, so the full editor was already bundled, and a
+  second, older copy was being fetched on top.
+- **Fix, `markdown_editor.tsx`:** `loader.config({ monaco })` hands the
+  wrapper the bundled copy, and `MonacoEnvironment.getWorker` serves the
+  base editor worker from our own origin (`editor.worker-*.js`). The CSP is
+  unchanged. Don't fix this class of bug by allowing a CDN in `script-src`.
+- **Verified** against the local Worker, which applies the production CSP.
+  The old build reproduced the CSP error. The new one mounted the editor
+  with zero jsdelivr requests and no CSP errors, and typing and undo worked.
+- **Same HAR, left as is:** Cloudflare's Web Analytics beacon
+  (`static.cloudflareinsights.com`) is also blocked by `script-src 'self'`.
+  It is injected at the edge, not by this repo. Either turn off its
+  auto-injection in the dashboard or accept no analytics. Allowing it would
+  need a CSP change.
