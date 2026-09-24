@@ -1479,6 +1479,14 @@ showed `cdn.jsdelivr.net/npm/monaco-editor@0.43.0/min/vs/loader.js` blocked
 - **Verified** against the local Worker, which applies the production CSP.
   The old build reproduced the CSP error. The new one mounted the editor
   with zero jsdelivr requests and no CSP errors, and typing and undo worked.
+- **Deployed and confirmed live, 24 Sep 2026.** Merged as `a50de4c`, deployed
+  as version `fb300f61`: 100% of traffic, annotated `a50de4c`, which matches
+  the merge commit. The owner then edited a post on the live site.
+- **One jsdelivr URL is still in the built bundle, and that is expected.**
+  It is `@monaco-editor/loader`'s default `paths.vs` config object. The
+  loader only uses it when no `monaco` instance was configured, so it is
+  never fetched. A `grep` of `dist/` will keep finding it. The proof is the
+  network log (zero jsdelivr requests), not the bundle text.
 - **Same HAR, left as is:** Cloudflare's Web Analytics beacon
   (`static.cloudflareinsights.com`) is also blocked by `script-src 'self'`.
   It is injected at the edge, not by this repo. Either turn off its
