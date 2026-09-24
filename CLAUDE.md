@@ -1429,3 +1429,32 @@ on that branch. The code it shipped is identical to `main` at `7c4f28d`: the
 branch differs only in this file. Once #21 is squash-merged, `465a807` is on
 no branch. **Run `git checkout main && git pull` before `bun run deploy`**,
 or the label names a commit that is hard to find later.
+
+## The blog's look: tokens, fonts and the theme-colour trap — 24 September 2026
+
+The old "Pearcache CLI" theme was replaced by a quieter one (approved via
+`/design-shotgun`): warm graphite, one amber accent, IBM Plex Mono for the
+header and meta text, Newsreader serif for the reading column. Everything
+lives in the tokens at the end of `client/src/index.css`.
+
+- **No page frame, on purpose.** The old `body::before` was `position: fixed`
+  at `z-index: 100`, so pages scrolled under a gold rectangle. The fixed
+  256px colour glow in `header.tsx` went with it. Don't reintroduce a fixed
+  decorative layer.
+- **Fonts are self-hosted in `client/public/fonts`** (latin subsets from
+  @fontsource 5.3.0, OFL-1.1, licences alongside). The CSP is
+  `font-src 'self' data:`, so a Google Fonts link would be blocked. The old
+  theme asked for "Fira Code" and never loaded it: every visitor got Courier
+  New.
+- **`applyThemeColor` used to force pink.** With no `theme.color` configured,
+  it wrote the default `#fc466b` inline on `<html>`, and an inline style beats
+  any stylesheet. The old CSS hid this with `!important` colours. Now an
+  unset or invalid colour clears the inline properties, and the stylesheet's
+  accent applies, which is different per colour mode. Setting a colour in
+  Settings still overrides it, with one colour for both modes. Check its
+  contrast on the light background if you do. The Settings page still
+  *displays* `#fc466b` as the current value when none is set.
+- **Contrast is written next to the tokens.** Recheck it if a colour changes.
+- **Known limits.** The drop cap styles the first paragraph only, so a post
+  that opens with an image has none. The `terminal-nav-*` classes used by the
+  classic header layout are now unstyled. Production uses the compact layout.
