@@ -1,13 +1,14 @@
-import { eq } from "drizzle-orm";
+import { eq, lte, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import type { AppContext, Variables } from "../core/hono-types";
 import { profileAsync } from "../core/server-timing";
 import { setJWTCookie, clearJWTCookie } from "../core/hono-middleware";
-import { users } from "../db/schema";
+import { loginAttempts, users } from "../db/schema";
 import {
     BadRequestError,
     ForbiddenError,
     InternalServerError,
+    RateLimitError,
 } from "../errors";
 
 // Hash password using SHA-256
@@ -17,6 +18,41 @@ async function hashPassword(password: string): Promise<string> {
     const hashBuffer = await crypto.subtle.digest("SHA-256", data);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
     return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+// Login throttle. The admin username is published on every post, so before
+// this the password was the only barrier and nothing limited guesses.
+// ponytail: per-IP only, so guessing spread across many IPs is slowed, not
+// stopped; add Turnstile on the login form if that ever shows up. The zone's one
+// Free-plan rate-limit rule is already spent on "Prevent Flooding", which is why
+// this lives in the app.
+const LOGIN_WINDOW_SECONDS = 15 * 60;
+const LOGIN_MAX_FAILURES = 5;
+
+function loginClientIp(c: AppContext) {
+    // cf-connecting-ip is set by Cloudflare's edge and cannot be supplied by the
+    // client. x-real-ip is deliberately NOT a fallback: a client can set it, and
+    // would get a fresh throttle bucket with every request.
+    return c.req.header('cf-connecting-ip') || 'unknown';
+}
+
+async function assertLoginNotThrottled(db: any, ip: string, now: number) {
+    const row = await db.query.loginAttempts.findFirst({ where: eq(loginAttempts.ip, ip) });
+    if (row && row.windowStart > now - LOGIN_WINDOW_SECONDS && row.failures >= LOGIN_MAX_FAILURES) {
+        throw new RateLimitError('Too many failed login attempts. Try again later.');
+    }
+}
+
+async function recordLoginFailure(db: any, ip: string, now: number) {
+    // Sweeping expired rows first means a returning IP starts a fresh window,
+    // and the table only ever holds IPs with failures in the last window.
+    await db.delete(loginAttempts).where(lte(loginAttempts.windowStart, now - LOGIN_WINDOW_SECONDS));
+    await db.insert(loginAttempts)
+        .values({ ip, failures: 1, windowStart: now })
+        .onConflictDoUpdate({
+            target: loginAttempts.ip,
+            set: { failures: sql`${loginAttempts.failures} + 1` },
+        });
 }
 
 export function PasswordAuthService(): Hono<{
@@ -47,6 +83,16 @@ export function PasswordAuthService(): Hono<{
             throw new BadRequestError('Username and password are required');
         }
 
+        // Checked before the password is even hashed, so a throttled client gets
+        // the same 429 whether or not its guess would have been right.
+        const ip = loginClientIp(c);
+        const now = Math.floor(Date.now() / 1000);
+        await assertLoginNotThrottled(db, ip, now);
+        const rejectLogin = async (): Promise<never> => {
+            await recordLoginFailure(db, ip, now);
+            throw new ForbiddenError('Invalid credentials');
+        };
+
         // Hash the provided password
         const hashedPassword = await profileAsync(c, 'auth_login_hash', () => hashPassword(password));
 
@@ -55,7 +101,7 @@ export function PasswordAuthService(): Hono<{
             const expectedHash = await profileAsync(c, 'auth_admin_hash', () => hashPassword(adminPassword));
             
             if (hashedPassword !== expectedHash) {
-                throw new ForbiddenError('Invalid credentials');
+                return rejectLogin();
             }
 
             // Find or create admin user
@@ -93,6 +139,8 @@ export function PasswordAuthService(): Hono<{
                     .where(eq(users.id, user.id)));
             }
 
+            await db.delete(loginAttempts).where(eq(loginAttempts.ip, ip));
+
             // Generate JWT token
             const token = await profileAsync(c, 'auth_admin_token', () => jwt.sign({ id: user.id }));
 
@@ -116,13 +164,11 @@ export function PasswordAuthService(): Hono<{
             where: eq(users.username, username) 
         }));
 
-        if (!user || !user.password) {
-            throw new ForbiddenError('Invalid credentials');
+        if (!user || !user.password || user.password !== hashedPassword) {
+            return rejectLogin();
         }
 
-        if (user.password !== hashedPassword) {
-            throw new ForbiddenError('Invalid credentials');
-        }
+        await db.delete(loginAttempts).where(eq(loginAttempts.ip, ip));
 
         // Generate JWT token
         const token = await profileAsync(c, 'auth_user_token', () => jwt.sign({ id: user.id }));

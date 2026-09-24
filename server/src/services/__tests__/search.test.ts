@@ -51,6 +51,27 @@ describe("SearchService", () => {
         expect(secondPage.hasNext).toBe(false);
     });
 
+    it("never returns unlisted posts to anonymous search, but does to admins", async () => {
+        await db.insert(feeds).values([
+            { title: "Needle listed", content: "public", uid: 1, draft: 0, listed: 1 },
+            { title: "Needle unlisted", content: "link-only", uid: 1, draft: 0, listed: 0 },
+            { title: "Needle draft", content: "private", uid: 1, draft: 1, listed: 1 },
+        ]);
+
+        const publicResponse = await app.request("/Needle", {}, env);
+        const publicResult = await publicResponse.json() as any;
+
+        expect(publicResponse.status).toBe(200);
+        expect(publicResult.size).toBe(1);
+        expect(publicResult.data.map((feed: any) => feed.title)).toEqual(["Needle listed"]);
+
+        const adminResponse = await app.request("/Needle", {
+            headers: { Authorization: "Bearer mock_token_1" },
+        }, env);
+        const adminResult = await adminResponse.json() as any;
+        expect(adminResult.size).toBe(3);
+    });
+
     it("isolates administrator search cache entries from public results", async () => {
         await clientConfig.set("cache.enabled", true);
         await db.insert(feeds).values([

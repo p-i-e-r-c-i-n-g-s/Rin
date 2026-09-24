@@ -256,6 +256,75 @@ describe("PasswordAuthService", () => {
     });
   });
 
+  describe("POST /auth/login - failed-login throttle", () => {
+    const login = (password: string, ip = "203.0.113.7") =>
+      app.request("/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "cf-connecting-ip": ip },
+        body: JSON.stringify({ username: "admin", password }),
+      }, env);
+
+    it("returns 429 after five failures, even for the correct password", async () => {
+      for (let i = 0; i < 5; i++) {
+        expect((await login("wrong")).status).toBe(403);
+      }
+
+      expect((await login("wrong")).status).toBe(429);
+      // A throttled client learns nothing: the right password gets the same 429.
+      expect((await login("admin123")).status).toBe(429);
+    });
+
+    it("throttles per client IP", async () => {
+      for (let i = 0; i < 5; i++) {
+        await login("wrong", "203.0.113.7");
+      }
+
+      expect((await login("wrong", "203.0.113.7")).status).toBe(429);
+      expect((await login("admin123", "198.51.100.2")).status).toBe(200);
+    });
+
+    it("ignores a client-supplied x-real-ip, which would otherwise mint a fresh bucket per request", async () => {
+      for (let i = 0; i < 5; i++) {
+        const res = await app.request("/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "cf-connecting-ip": "203.0.113.9", "x-real-ip": `10.0.0.${i}` },
+          body: JSON.stringify({ username: "admin", password: "wrong" }),
+        }, env);
+        expect(res.status).toBe(403);
+      }
+
+      expect((await login("wrong", "203.0.113.9")).status).toBe(429);
+    });
+
+    it("clears the count on a successful login", async () => {
+      for (let i = 0; i < 4; i++) {
+        await login("wrong");
+      }
+      expect((await login("admin123")).status).toBe(200);
+
+      const rows = sqlite.prepare("SELECT * FROM login_attempts").all();
+      expect(rows).toEqual([]);
+
+      for (let i = 0; i < 4; i++) {
+        expect((await login("wrong")).status).toBe(403);
+      }
+    });
+
+    it("starts a fresh window once the old one has expired", async () => {
+      for (let i = 0; i < 5; i++) {
+        await login("wrong");
+      }
+      expect((await login("wrong")).status).toBe(429);
+
+      // Age the row past the 15-minute window.
+      sqlite.prepare("UPDATE login_attempts SET window_start = window_start - 901").run();
+
+      expect((await login("wrong")).status).toBe(403);
+      const rows = sqlite.prepare("SELECT failures FROM login_attempts").all() as any[];
+      expect(rows).toEqual([{ failures: 1 }]);
+    });
+  });
+
   describe("GET /auth/status - Check auth availability", () => {
     it("should return github and password status", async () => {
       const result = await api.auth.status();

@@ -319,5 +319,38 @@ describe('StorageService', () => {
             expect(res.headers.get('content-type')).toBe('text/plain');
             expect(await res.text()).toBe('test');
         });
+
+        // The route is public, so it may only serve keys under S3_FOLDER. Every
+        // key that reaches R2 is recorded, so a 404 here proves the key was
+        // refused before storage was asked, not that it merely was not found.
+        it('refuses keys outside S3_FOLDER, dot segments and query-shaped keys without touching storage', async () => {
+            const requested: string[] = [];
+            const scopedEnv = createMockEnv({
+                R2_BUCKET: {
+                    get: async (key: string) => {
+                        requested.push(key);
+                        return null;
+                    },
+                } as unknown as R2Bucket,
+                S3_ACCESS_HOST: '' as any,
+            });
+            const scopedApp = createAppWithEnv(scopedEnv, 1);
+
+            for (const path of [
+                '/blob/cache/rss.xml',
+                '/blob/images/..%2Fcache%2Frss.xml',
+                '/blob/images/../cache/rss.xml',
+                '/blob/%3Flist-type%3D2',
+                '/blob/imagesX/secret.txt',
+            ]) {
+                const res = await scopedApp.request(path, { method: 'GET' }, scopedEnv);
+                expect(res.status).toBe(404);
+            }
+            expect(requested).toEqual([]);
+
+            const allowed = await scopedApp.request('/blob/images/missing.txt', { method: 'GET' }, scopedEnv);
+            expect(allowed.status).toBe(404);
+            expect(requested).toEqual(['images/missing.txt']);
+        });
     });
 });

@@ -1,5 +1,5 @@
 import { path_join } from "./path";
-import { buildS3ObjectUrl, createS3Client, putObject as putS3Object } from "./s3";
+import { buildS3ObjectUrl, createS3Client, encodeStorageKey, putObject as putS3Object } from "./s3";
 
 type StorageTarget =
   | {
@@ -51,14 +51,6 @@ export function resolveStorageTarget(env: Env): StorageTarget {
     folder,
     publicBaseUrl,
   };
-}
-
-function encodeStorageKey(key: string) {
-  return key
-    .split("/")
-    .filter((segment) => segment.length > 0)
-    .map((segment) => encodeURIComponent(segment))
-    .join("/");
 }
 
 function buildBlobUrl(storageKey: string, baseUrl?: string) {
