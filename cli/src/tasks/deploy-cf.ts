@@ -221,6 +221,25 @@ export function buildWranglerQueueConfig(taskQueueName: string, preview = false)
   `);
 }
 
+// Production is served from its own domain, so the workers.dev URL and the
+// per-version preview URLs are only a second, unused way in. Leave them on for
+// preview deploys (workers.dev is their only address) and when FRONTEND_URL is
+// unset or is itself a workers.dev URL, where turning them off takes the site
+// down. Top-level keys: must be emitted before any [table] in wrangler.toml.
+export function buildWranglerExposureConfig(frontendUrl = "", preview = false) {
+  let host = "";
+  try {
+    host = new URL(frontendUrl).hostname;
+  } catch {}
+  if (preview || !host || host.endsWith(".workers.dev")) {
+    return "";
+  }
+  return stripIndent(`
+    workers_dev = false
+    preview_urls = false
+  `);
+}
+
 export function buildWranglerObservabilityConfig(preview = false) {
   if (!preview) {
     return "";
@@ -303,6 +322,8 @@ export async function runCloudflareDeploy(target: "all" | "server" | "client" = 
   const hasServerBuild = await Bun.file("./dist/server/_worker.js").exists();
   const serverMain = pickServerMain(shouldReusePrebuilt(), hasServerBuild);
   console.log(`📦 Server entry: ${serverMain}`);
+  const exposureConfig = buildWranglerExposureConfig(frontendUrl, preview);
+  console.log(`🔒 workers.dev and preview URLs: ${exposureConfig ? "off" : "left on"}`);
 
   Bun.write(
     "wrangler.toml",
@@ -311,6 +332,7 @@ export async function runCloudflareDeploy(target: "all" | "server" | "client" = 
       name = "${workerName}"
       main = "${serverMain}"
       compatibility_date = "2026-01-20"
+      ${exposureConfig}
 
       ${buildWranglerAssetsConfig()}
       ${buildWranglerTriggersConfig(preview)}

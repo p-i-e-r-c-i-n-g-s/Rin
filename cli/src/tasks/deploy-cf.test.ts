@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   buildWranglerAssetsConfig,
+  buildWranglerExposureConfig,
   buildWranglerObservabilityConfig,
   formatDeployMessage,
   buildWranglerQueueConfig,
@@ -151,5 +152,26 @@ describe("pickServerMain", () => {
     expect(pickServerMain(shouldReusePrebuilt({ GITHUB_ACTIONS: "true" }), true)).toBe("dist/server/_worker.js");
     expect(pickServerMain(shouldReusePrebuilt({ GITHUB_ACTIONS: "true" }), false)).toBe("server/src/_worker.ts");
     expect(shouldReusePrebuilt({ GITHUB_ACTIONS: "false" })).toBe(false);
+  });
+});
+
+describe("buildWranglerExposureConfig", () => {
+  it("turns workers.dev and preview URLs off for production on its own domain", () => {
+    const config = buildWranglerExposureConfig("https://blog.example.com");
+    expect(config).toContain("workers_dev = false");
+    expect(config).toContain("preview_urls = false");
+  });
+
+  it("leaves them on for preview deploys, whose only address is workers.dev", () => {
+    expect(buildWranglerExposureConfig("https://blog.example.com", true)).toBe("");
+  });
+
+  it("leaves them on when the site itself is served from workers.dev", () => {
+    expect(buildWranglerExposureConfig("https://rin-server.someone.workers.dev")).toBe("");
+  });
+
+  it("leaves them on when FRONTEND_URL is unset or unparseable", () => {
+    expect(buildWranglerExposureConfig("")).toBe("");
+    expect(buildWranglerExposureConfig("blog.example.com")).toBe("");
   });
 });
