@@ -785,6 +785,13 @@ mirror. **`mermaid@10.9.5` resolves from the default registry, not npmmirror** �
 checked. A re-run passed. So that was an ordinary transient download failure,
 and it is evidence of nothing about the mirror.
 
+**It recurred on 23 Sep 2026:** `format-check` in "CI - Test and Type Check"
+on `8a0b422` (run `35916370546`), with the same `Fail extracting tarball for
+"mermaid"` during install. It was the only failing job; test, typecheck and
+coverage passed. The same workflow was green on all 8 earlier `main` runs
+in the last-10 listing, and again on `fd5eb87`. Still transient, and still nothing to fix. If it
+starts recurring often, it is worth a cache or retry on `bun install` in CI.
+
 ### Why it was not "fixed"
 
 Forcing re-resolution (an `.npmrc` plus a lockfile regeneration) would rewrite
@@ -1005,6 +1012,74 @@ for, instead of an HTTP fetch of `S3_ACCESS_HOST`. Note that the deployed
 `rin-server` has **no `r2_bucket` binding** (its bindings list shows only the
 `S3_*` variables and secrets), so any code path that expects `R2_BUCKET`
 should be checked against that. Not changed.
+
+### FIXED 23 Sep 2026 — by seeding the stored favicon, not by touching Access
+
+`GET /favicon` (`server/src/services/favicon.ts`) first reads
+`images/favicon.webp` with `getStorageObject()`, which uses the S3 API and
+this Worker's credentials, not an HTTP fetch of `S3_ACCESS_HOST`. It only
+falls back to building a favicon from the avatar when that object is missing.
+The object had never existed, and **both ways of creating it are broken
+here**:
+
+- **The avatar fallback** (`buildFaviconFromSource`) fetches
+  `https://images.pearcache.com/images/<avatar>` and gets the
+  Worker-subrequest 403 described above.
+- **The admin upload** (`POST /favicon`) stores the original, then transforms
+  it with the same kind of fetch against `getStoragePublicUrl()`, which is
+  also `S3_ACCESS_HOST`. It fails the same way.
+- **Both pass `cf: { image: … }` (Image Transformations), and transformations
+  are OFF on the `pearcache.com` zone** (`image_resizing: off`, read from the
+  zone settings API on 23 Sep). So even without the 403, neither path could
+  produce the 144px webp it expects. What `cf.image` does on a zone with
+  transformations off was not established.
+
+The fix was to write the object directly:
+
+- **Source:** the avatar `images/126b0bd819e8e68bf989e96ffaeb611b55edc694.png`
+  (288×288 RGBA). Its SHA-1 equals its key, which confirms uploads are
+  content-addressed.
+- **Conversion:** this repo's own `sharp`, with the parameters the code asks
+  Cloudflare for: `resize(144, 144, { fit: "cover" })` →
+  `webp({ quality: 100 })`. Result: 11,680 bytes, 144×144, alpha kept. It was
+  inspected visually before upload.
+- **Upload:** `wrangler r2 object put pearcache-images/images/favicon.webp
+  --content-type image/webp --remote`, at 24 Sep 01:12:14Z (23 Sep in PDT).
+- **Checked first:** `images/favicon.webp` and every `originFavicon.*` key
+  were absent, so nothing was overwritten.
+- **Verified:** read back from R2, the SHA-256 matches the local file
+  (`759f2172…`).
+
+**Not verified live:** the rendered favicon on `blog.pearcache.com`, because
+a session cannot request pearcache.com hosts. To check, load the blog in a
+real browser. The favicon may need a hard refresh, since the old failures
+were never a cached success. Once it is served, the
+`edgeWorkerFetch` 403s on `images/126b0bd8….png` in zone analytics should
+stop, because that fetch only happens when the stored object is missing.
+
+**If the avatar changes, regenerate this file by hand the same way.** The
+built-in paths will keep failing until the Worker-subrequest 403 is solved or
+transformations are enabled. A new admin upload stores `originFavicon.<ext>`, then
+fails with the 403 text before it writes `favicon.webp`, so it does not
+overwrite this file.
+
+### Workers Logs is OFF in production, by this repo's own generator
+
+`wrangler.toml` is gitignored and **generated** by
+`cli/src/tasks/deploy-cf.ts`. `buildWranglerObservabilityConfig(preview)`
+returns `""` unless `preview` is true, so production `rin-server` deploys with
+no `[observability]` block. That is why Workers Logs returns nothing for it:
+zero events over 22–23 Sep, while the account's `workersInvocationsScheduled`
+analytics show the `*/20` cron succeeding. **An empty logs query here is not
+evidence that nothing ran.** Use the scheduled or invocation analytics
+instead.
+
+To turn logs on, change the generator, **not** `wrangler.toml`: the local file
+was rewritten at the time of the last production deploy (18 Sep 13:12 PDT),
+so a hand edit would be lost on the next one. Make
+`buildWranglerObservabilityConfig` emit the logs block for production too, and
+update `cli/src/tasks/deploy-cf.test.ts`. It takes effect at the next
+hand-run deploy. Not changed.
 
 ### What this HAR does NOT show
 
