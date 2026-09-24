@@ -1520,3 +1520,10 @@ stay above the first `[table]`.
 **Confirm after a deploy** from the API, not the config: the Worker's
 `workers.dev` subdomain should read `enabled: false` and
 `previews_enabled: false`.
+
+**Confirmed 24 Sep 2026.** Deployed as version `ac97a9a5` (100%, annotated
+`aa1a8a3`). The log printed `🔒 … off`, and the
+`rin-server.<subdomain>.workers.dev` line that earlier deploys printed under
+"Deployed rin-server triggers" was gone. The API read `true`/`true` before
+the deploy and `false`/`false` after it. The blog's custom domain is still
+attached as production.
