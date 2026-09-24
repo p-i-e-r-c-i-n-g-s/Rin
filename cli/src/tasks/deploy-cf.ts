@@ -130,6 +130,11 @@ export function pickServerMain(reusePrebuilt: boolean, hasServerBuild: boolean) 
   return reusePrebuilt && hasServerBuild ? "dist/server/_worker.js" : "server/src/_worker.ts";
 }
 
+async function findD1Database(name: string) {
+  const databases = JSON.parse(await $`${bunExec} x wrangler d1 list --json`.quiet().text()) as Array<{ name: string; uuid: string }>;
+  return databases.find((item) => item.name === name);
+}
+
 async function buildClient() {
   const distIndex = Bun.file("./dist/client/index.html");
   if (shouldReusePrebuilt() && (await distIndex.exists())) {
@@ -283,6 +288,14 @@ export async function runCloudflareDeploy(target: "all" | "server" | "client" = 
     }
   }
 
+  // Renew wrangler's OAuth token before the first D1 call. The token lasts an
+  // hour. Measured 24 Sep 2026: when a D1 command is the one that renews it,
+  // D1 often rejects the brand-new token (401 on create, 403 code 7403 on a
+  // query, sometimes 401 on list), while a D1 call from the next process
+  // works. `whoami` renews through /user, which accepts it at once: 4 of 4
+  // forced renewals were followed by clean D1 calls.
+  await $`${bunExec} x wrangler whoami`.quiet().nothrow();
+
   if (target !== "server") {
     await buildClient();
   }
@@ -327,11 +340,22 @@ export async function runCloudflareDeploy(target: "all" | "server" | "client" = 
     `),
   );
 
-  const { exitCode, stderr, stdout } = await $`${bunExec} x wrangler d1 create ${dbName}`.quiet().nothrow();
-  if (exitCode !== 0 && !stderr.toString().includes("already exists")) {
-    console.error(`Failed to create D1 "${dbName}"`);
-    console.error(stripIndent(stdout.toString()));
-    console.error(stripIndent(stderr.toString()));
+  // List first and create only when missing: an existing database needs no
+  // write, which was the call failing above.
+  let database = await findD1Database(dbName);
+  if (!database) {
+    const { exitCode, stderr, stdout } = await $`${bunExec} x wrangler d1 create ${dbName}`.quiet().nothrow();
+    if (exitCode !== 0) {
+      console.error(`Failed to create D1 "${dbName}"`);
+      console.error(stripIndent(stdout.toString()));
+      console.error(stripIndent(stderr.toString()));
+      process.exit(1);
+    }
+    database = await findD1Database(dbName);
+  }
+  // Fail closed. This used to skip the binding and deploy a Worker with no DB.
+  if (!database) {
+    console.error(`D1 "${dbName}" is not in \`wrangler d1 list\`; refusing to deploy without a DB binding`);
     process.exit(1);
   }
 
@@ -343,17 +367,12 @@ export async function runCloudflareDeploy(target: "all" | "server" | "client" = 
     process.exit(1);
   }
 
-  const listJson = (JSON.parse(await $`${bunExec} x wrangler d1 list --json`.quiet().text()) as Array<{ name: string; uuid: string }>).find(
-    (item) => item.name === dbName,
-  );
-  if (listJson) {
-    await $`echo ${stripIndent(`
-      [[d1_databases]]
-      binding = "DB"
-      database_name = "${listJson.name}"
-      database_id = "${listJson.uuid}"
-    `)} >> wrangler.toml`.quiet();
-  }
+  await $`echo ${stripIndent(`
+    [[d1_databases]]
+    binding = "DB"
+    database_name = "${database.name}"
+    database_id = "${database.uuid}"
+  `)} >> wrangler.toml`.quiet();
 
   await $`echo ${stripIndent(`
     [ai]

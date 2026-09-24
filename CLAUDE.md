@@ -1381,3 +1381,51 @@ price of the annotation being true.
   only ever returns the active script. So an old version's code cannot be
   read back this way; check each deploy while it is the active one.
 - A green CI run on `main` says nothing here. This site deploys by hand.
+
+## `Failed to create D1 "rin"` was an OAuth renewal race — fixed 24 September 2026
+
+Two deploys (23 Sep 03:56 PDT, 24 Sep 05:37Z) stopped at the first step with
+`Authentication error [code: 10000]` on `POST …/d1/database`. Running again a
+few minutes later worked both times. Nothing had been changed: the script exits
+before migrations, secrets or the upload.
+
+**Cause, reproduced by forcing renewals.** wrangler's OAuth token lasts one
+hour (`expiration_time` in `~/.wrangler/config/default.toml`). The first
+command after it expires renews it. When that command is a D1 call, D1 often
+rejects the brand-new token:
+
+| first call after a forced renewal | result |
+|---|---|
+| `d1 create rin` | 401 (2 of 2) |
+| `d1 execute --remote` (the migration query) | 403, code 7403 "account … not authorized" |
+| `d1 list` | 401 twice, 200 twice |
+| `queues create` | 409 already exists, i.e. accepted |
+
+The same calls from the next process, about a second later, all succeeded.
+`whoami` renews through `/user`, which accepts the new token at once. After
+`whoami`, 4 of 4 forced renewals were followed by clean D1 list and query
+calls.
+
+**Fix, in `runCloudflareDeploy`:**
+
+- `wrangler whoami` runs first, so a D1 call is never the one that renews
+  the token.
+- The database is listed first and created only when missing. An existing
+  database now needs no write at all.
+- **It fails closed.** Before this, a database missing from `d1 list` made
+  the script skip the `[[d1_databases]]` binding and deploy a Worker with no
+  `DB`. Now it exits.
+
+Verified by running the new sequence, with the real `getMigrationVersion`,
+after three forced renewals. All three found `rin` and read
+`migration_version` 13. A full `bun run deploy` from this code has not run
+yet. The next one is the check.
+
+### A deploy is labelled with whatever branch is checked out
+
+The 24 Sep 05:43Z deploy is annotated `465a807`. That commit is on the
+docs-only branch of #21, not on `main`, because the checkout had been left
+on that branch. The code it shipped is identical to `main` at `7c4f28d`: the
+branch differs only in this file. Once #21 is squash-merged, `465a807` is on
+no branch. **Run `git checkout main && git pull` before `bun run deploy`**,
+or the label names a commit that is hard to find later.
