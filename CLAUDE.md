@@ -1492,3 +1492,31 @@ showed `cdn.jsdelivr.net/npm/monaco-editor@0.43.0/min/vs/loader.js` blocked
   It is injected at the edge, not by this repo. Either turn off its
   auto-injection in the dashboard or accept no analytics. Allowing it would
   need a CSP change.
+
+## `workers.dev` and preview URLs are off for production — 24 September 2026
+
+The blog is served from its own domain, and the Worker's `workers.dev` URL
+and per-version preview URLs were a second way in. Both still sat behind an
+account-level login. The setting lives in the generator, not the dashboard:
+`wrangler deploy` applies `workers_dev` and `preview_urls` from
+`wrangler.toml` on every run, so a dashboard toggle would be undone by the
+next deploy.
+
+`buildWranglerExposureConfig(frontendUrl, preview)` in
+`cli/src/tasks/deploy-cf.ts` emits `workers_dev = false` and
+`preview_urls = false` **only** for a production deploy whose `FRONTEND_URL`
+is a real URL on a host other than `*.workers.dev`. It emits nothing, which
+leaves both on, for:
+
+- **preview deploys.** They have no custom domain, so `workers.dev` is
+  their only address.
+- **`FRONTEND_URL` unset, unparseable or on `workers.dev`.** Turning
+  `workers.dev` off there would take the site down.
+
+The deploy prints `🔒 workers.dev and preview URLs: off` or `left on`, so
+the choice is visible on every run. The keys are top-level TOML and must
+stay above the first `[table]`.
+
+**Confirm after a deploy** from the API, not the config: the Worker's
+`workers.dev` subdomain should read `enabled: false` and
+`previews_enabled: false`.
