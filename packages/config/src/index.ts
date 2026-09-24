@@ -11,7 +11,10 @@ export const CLIENT_CONFIG_DEFAULTS = new Map(
     "header.layout": "classic",
     "feed.layout": "list",
     "feed.card_variant": "default",
-    "theme.color": "#f0b35a",
+    // Empty = the stylesheet's --accent, one per colour mode. A hex here made
+    // Settings report a colour the site was not using (applyThemeColor reads the
+    // raw config, never this default).
+    "theme.color": "",
     "comment.enabled": true,
     "login.enabled": true,
     "site.name": "Pearcache Blog",

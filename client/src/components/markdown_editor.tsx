@@ -432,7 +432,7 @@ export function MarkdownEditor({ content, setContent, placeholder = "> Write you
         </div>
         {uploading &&
           <div className="flex flex-row items-center space-x-2 px-2">
-            <Loading type="spin" color="#FC466B" height={16} width={16} />
+            <Loading type="spin" color="var(--accent)" height={16} width={16} />
             <span className="text-sm text-neutral-500">{t('uploading')}</span>
           </div>
         }

@@ -17,7 +17,7 @@ import { FEED_CARD_VARIANTS, normalizeFeedCardVariant } from "../components/feed
 import { FeedCardPreview } from "../components/feed-card-preview";
 import { FEED_LAYOUT_OPTIONS, normalizeFeedLayout } from "../components/feed-layout-options";
 import { useSiteConfig } from "../hooks/useSiteConfig";
-import { applyThemeColor, normalizeThemeColor } from "../utils/theme-color";
+import { applyThemeColor, currentAccentHex, normalizeThemeColor } from "../utils/theme-color";
 import { AISummarySettings } from "./settings-ai";
 import { ItemButton, ItemImageInput, ItemInput, ItemSwitch, ItemTitle, ItemWithUpload } from "./settings-items";
 import {
@@ -41,7 +41,7 @@ const WEBHOOK_METHOD_OPTIONS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD",
 }));
 
 const THEME_COLOR_OPTIONS = [
-  { label: "Rose", value: "#fc466b" },
+  { label: "Default", value: "" },
   { label: "Violet", value: "#7c3aed" },
   { label: "Blue", value: "#2563eb" },
   { label: "Teal", value: "#0f766e" },
@@ -96,7 +96,10 @@ export function Settings() {
   const { clientConfig, serverConfig } = useMemo(() => createSettingsConfigWrappers(draft), [draft]);
   const aiValue = useMemo(() => buildAIConfigDraftValue(draft, hasStoredAiApiKey), [draft, hasStoredAiApiKey]);
   const hasUnsavedChanges = !areSettingsDraftsEqual(draft, initialDraft);
-  const themeColorValue = normalizeThemeColor(String(clientConfig.get("theme.color") ?? "#fc466b"));
+  const storedThemeColor = clientConfig.get("theme.color");
+  // "" means unset: the site palette, which applyThemeColor leaves to the CSS.
+  const themeColorValue = typeof storedThemeColor === "string" && storedThemeColor ? normalizeThemeColor(storedThemeColor) : "";
+  const effectiveThemeColor = themeColorValue || currentAccentHex();
   const feedLayoutValue = normalizeFeedLayout(String(clientConfig.get("feed.layout") ?? "list"));
   const feedCardVariantValue = normalizeFeedCardVariant(String(clientConfig.get("feed.card_variant") ?? "default"));
   const previewSiteName = String(clientConfig.get("site.name") ?? clientConfig.default("site.name") ?? "Rin");
@@ -183,7 +186,7 @@ export function Settings() {
       </Helmet>
       <main className="w-full rounded-2xl bg-w" aria-label={t("main_content")}>
         <div className="flex flex-col items-start space-y-2">
-          {(loading || saving) && <ReactLoading width="1em" height="1em" type="spin" color="#FC466B" />}
+          {(loading || saving) && <ReactLoading width="1em" height="1em" type="spin" color="var(--accent)" />}
           <ItemTitle title={t("settings.site.title")} />
           <ItemInput
             title={t("settings.site.name.title")}
@@ -261,7 +264,7 @@ export function Settings() {
                       data={{
                         avatar: previewSiteAvatar,
                         name: previewSiteName,
-                        themeColor: themeColorValue,
+                        themeColor: effectiveThemeColor,
                       }}
                       layout={value}
                       selected={normalizeHeaderLayout(String(clientConfig.get("header.layout") ?? "classic")) === value}
@@ -349,7 +352,7 @@ export function Settings() {
                     />
                   }
                   action={
-                    <div className="text-sm font-medium t-primary">{themeColorValue}</div>
+                    <div className="text-sm font-medium t-primary">{themeColorValue || t("settings.theme_color.options.default")}</div>
                   }
                 />
                 <SettingsCardBody>
@@ -372,7 +375,7 @@ export function Settings() {
                         >
                           <span
                             className="h-6 w-6 rounded-full border border-black/10 dark:border-white/10"
-                            style={{ backgroundColor: option.value }}
+                            style={{ backgroundColor: option.value || "var(--accent)" }}
                           />
                           <span className="text-sm t-primary">{t(`settings.theme_color.options.${option.label.toLowerCase()}`)}</span>
                           {selected ? <i className="ri-check-line text-theme" /> : null}
@@ -382,7 +385,7 @@ export function Settings() {
                     <label className="flex items-center gap-3 rounded-xl border border-black/10 px-3 py-2 hover:border-black/20 dark:border-white/10 dark:hover:border-white/20">
                       <input
                         type="color"
-                        value={themeColorValue}
+                        value={effectiveThemeColor}
                         onChange={(event) => {
                           const normalized = normalizeThemeColor(event.target.value);
                           setConfigValue("client", "theme.color", normalized);

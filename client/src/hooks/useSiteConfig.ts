@@ -36,7 +36,7 @@ export function useSiteConfig() {
         feedLayout: normalizeFeedLayout(config.get<string>(SITE_CONFIG_KEYS.feedLayout) || "list"),
         feedCardVariant: normalizeFeedCardVariant(config.get<string>(SITE_CONFIG_KEYS.feedCardVariant) || "default"),
         headerLayout: config.get<string>(SITE_CONFIG_KEYS.headerLayout) || "classic",
-        themeColor: config.get<string>(SITE_CONFIG_KEYS.themeColor) || "#fc466b",
+        themeColor: config.get<string>(SITE_CONFIG_KEYS.themeColor) || "",
     };
 }
 

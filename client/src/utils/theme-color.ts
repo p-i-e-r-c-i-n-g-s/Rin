@@ -1,4 +1,6 @@
-const DEFAULT_THEME_COLOR = "#fc466b";
+// Only the fallback for a malformed value. An unset colour is not this: it
+// means "use the stylesheet's --accent", which differs per colour mode.
+const DEFAULT_THEME_COLOR = "#d7a35f";
 
 function normalizeHex(value: string | undefined | null) {
   if (!value) return DEFAULT_THEME_COLOR;
@@ -74,4 +76,10 @@ export function applyThemeColor(value: string | undefined | null) {
   root.style.setProperty("--theme-rgb", toCssRgb(hexToRgb(color)));
   root.style.setProperty("--theme-hover-rgb", toCssRgb(shade(color, -0.3)));
   root.style.setProperty("--theme-active-rgb", toCssRgb(shade(color, -0.4)));
+}
+
+// The accent the stylesheet is showing right now, for UI that needs a concrete
+// hex (colour inputs, alpha suffixes) when no theme colour is configured.
+export function currentAccentHex() {
+  return normalizeHex(window.getComputedStyle(document.documentElement).getPropertyValue("--accent"));
 }

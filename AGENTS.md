@@ -17,10 +17,6 @@ bun run check             # TypeScript type check (turbo)
 bun run db:generate       # Generate Drizzle migrations
 bun run db:migrate        # Run local database migrations
 
-# Formatting
-bun run format:check      # Check formatting
-bun run format:write      # Fix formatting
-
 # Deployment (using Rin CLI)
 bun run deploy            # Deploy both frontend (Pages) and backend (Workers)
 bun run deploy:server     # Deploy backend only

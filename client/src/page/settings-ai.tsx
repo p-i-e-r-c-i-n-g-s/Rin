@@ -207,7 +207,7 @@ export function AISummarySettings({
               header={<SettingsCardHeader title={t("settings.ai_summary.test.title")} description={t("settings.ai_summary.test.desc")} />}
               action={
                 <>
-                  {testStatus === "testing" && <ReactLoading width="1em" height="1em" type="spin" color="#FC466B" />}
+                  {testStatus === "testing" && <ReactLoading width="1em" height="1em" type="spin" color="var(--accent)" />}
                   <Button
                     title={t("settings.ai_summary.test.button")}
                     onClick={handleTestModel}

@@ -1527,3 +1527,64 @@ stay above the first `[table]`.
 "Deployed rin-server triggers" was gone. The API read `true`/`true` before
 the deploy and `false`/`false` after it. The blog's custom domain is still
 attached as production.
+
+## Three small leftovers — 24 September 2026
+
+### `format:check` never checked anything, so it was removed
+
+It came from upstream's monorepo migration (`85df2d2`). The root script ran
+`turbo format:check`, and **no package ever defined that task**. No
+formatter was installed or configured either. turbo ran 0 tasks and exited
+0, so the `format-check` job in `test.yml` and the "Run format check" step
+in `ci.yml` were green on every run without looking at a file.
+
+Wiring up a real formatter was measured and turned down. Prettier on its
+defaults would rewrite **210 of 268** source files (190 at
+`printWidth: 120`). Upstream is not formatted, so that would make almost
+every future upstream merge conflict. Removed instead: the two root
+scripts, the two `turbo.json` tasks, the CI job and step, and the commands
+in `AGENTS.md` and the four `docs/` guide pages. There is no branch
+protection or ruleset, so no required check disappeared with it. A check
+that cannot fail is worse than no check. If a formatter is ever wanted,
+add it for real: one config, one reformat commit, and a check that fails on
+a badly formatted file.
+
+### Settings named a colour the site was not using
+
+`packages/config` shipped `"theme.color": "#f0b35a"` as a default (commit
+`681d8c7`, the old gold). `ConfigWrapper.get` falls back to defaults, so
+Settings reported `#f0b35a`. `applyThemeColor` reads the **raw** config,
+found nothing, and correctly left the stylesheet's accent in charge. So the
+page said one colour while showing another. On top of that, the swatch list
+started with "Rose" (`#fc466b`), and the loading spinners were hard-coded
+pink.
+
+Now:
+- the default is `""`, meaning use the stylesheet's `--accent`, which
+  differs per colour mode;
+- the first swatch is **Default**, which stores `""` and clears the inline
+  override;
+- the colour input and the header-layout previews use `currentAccentHex()`
+  (in `theme-color.ts`) when nothing is set;
+- the spinners use `var(--accent)`;
+- the `rose` locale key is now `default` in all four locales.
+
+Checked on the local preview: the page showed "Default", ticked, with the
+picker at `#d7a35f`. Violet set `--theme-rgb` inline, and Default cleared it
+again.
+
+### The drop cap skipped posts that open with an image
+
+Markdown puts an image inside a `<p>` (`<p><span class="block"><img>`), so
+`.toc-content > p:first-of-type::first-letter` hit a paragraph with no
+letter in it, and no drop cap appeared. The selector is now "the first `<p>`
+with no image":
+
+    .toc-content > p:not(:has(img)):not(p:not(:has(img)) ~ p)::first-letter
+
+Checked on the local preview against the live post, which opens with an
+image. Before, no paragraph had the cap. Now exactly one does, "It was a
+few years ago…", and it stays there with a second image placed in front. A
+paragraph that mixes text with an inline image is skipped too, which is
+acceptable. `:has()` inside `:not()` is valid; only `:has()` inside `:has()`
+is not.
