@@ -1286,6 +1286,8 @@ other direction too.
   a fault; not affected by the routing change.
 - **`/favicon.ico` 403** — still the Cloudflare Access **Default-Deny** page from
   `images.pearcache.com`. An Access policy change, not a code change.
+  *(Fixed 23 Sep 2026 by seeding the stored favicon; see "FIXED 23 Sep 2026"
+  above.)*
 - **`guestEmail` is still unobserved.** `/api/comment/2` returned `[]` in this
   capture too, because post 2 has no comments, and an empty array cannot show
   that a field is absent. Needs a HAR on a post with a guest comment. Do not
@@ -1315,7 +1317,11 @@ statement of all of this is here in CLAUDE.md.
 ## Pre-public fixes, and a deploy that shipped the wrong build — 23 September 2026
 
 A security pass before taking the blog out from behind Access found four
-things worth fixing first. They are #19 (`2fe14b1`); the PR description has
+things worth fixing first. **The blog went public on 24 Sep 2026 (UTC)**,
+after these were confirmed in the live script: a hostname-level Access
+`bypass` app, like the ears site's. The Worker's `workers.dev` and preview
+URLs still require a login. From here on the login endpoint is reachable by
+anyone, so the throttle below is a live defence, not a precaution. They are #19 (`2fe14b1`); the PR description has
 the mechanism and the tests for each:
 
 1. `/blob/*` scoped to `S3_FOLDER`, and storage keys percent-encoded wherever
