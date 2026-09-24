@@ -117,9 +117,22 @@ async function syncWorkerSecrets(workerName: string) {
   }
 }
 
+// ./dist is reused only on CI, where deploy.yml has just restored the artifacts
+// build.yml produced for the commit being deployed. Anywhere else ./dist is
+// whatever the last `bun run build` left behind, and nothing ties it to HEAD:
+// on 23 Sep 2026 a deploy annotated 2fe14b1 shipped a server bundle built on
+// 16 Sep, and nothing in the output said so. See CLAUDE.md.
+export function shouldReusePrebuilt(environment: Record<string, string | undefined> = process.env) {
+  return environment.GITHUB_ACTIONS === "true";
+}
+
+export function pickServerMain(reusePrebuilt: boolean, hasServerBuild: boolean) {
+  return reusePrebuilt && hasServerBuild ? "dist/server/_worker.js" : "server/src/_worker.ts";
+}
+
 async function buildClient() {
   const distIndex = Bun.file("./dist/client/index.html");
-  if (await distIndex.exists()) {
+  if (shouldReusePrebuilt() && (await distIndex.exists())) {
     console.log("✅ Using pre-built client from ./dist/client");
     return;
   }
@@ -274,9 +287,9 @@ export async function runCloudflareDeploy(target: "all" | "server" | "client" = 
     await buildClient();
   }
 
-  const serverDistIndex = Bun.file("./dist/server/_worker.js");
-  const hasServerBuild = await serverDistIndex.exists();
-  const serverMain = hasServerBuild ? "dist/server/_worker.js" : "server/src/_worker.ts";
+  const hasServerBuild = await Bun.file("./dist/server/_worker.js").exists();
+  const serverMain = pickServerMain(shouldReusePrebuilt(), hasServerBuild);
+  console.log(`📦 Server entry: ${serverMain}`);
 
   Bun.write(
     "wrangler.toml",

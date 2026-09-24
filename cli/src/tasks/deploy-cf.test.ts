@@ -6,6 +6,8 @@ import {
   buildWranglerQueueConfig,
   buildWranglerTriggersConfig,
   collectWorkerSecrets,
+  pickServerMain,
+  shouldReusePrebuilt,
 } from "./deploy-cf";
 
 describe("collectWorkerSecrets", () => {
@@ -136,5 +138,18 @@ describe("buildWranglerAssetsConfig", () => {
     // smart-placement colo. Widening it should be a deliberate edit here, not a
     // silent latency regression.
     expect(buildWranglerAssetsConfig()).not.toContain("run_worker_first = true");
+  });
+});
+
+describe("pickServerMain", () => {
+  it("bundles from source on a local deploy even when a stale dist/server exists", () => {
+    // The 23 Sep 2026 failure: a 16 Sep bundle shipped under the label 2fe14b1.
+    expect(pickServerMain(shouldReusePrebuilt({}), true)).toBe("server/src/_worker.ts");
+  });
+
+  it("reuses the CI build artifact only on GitHub Actions", () => {
+    expect(pickServerMain(shouldReusePrebuilt({ GITHUB_ACTIONS: "true" }), true)).toBe("dist/server/_worker.js");
+    expect(pickServerMain(shouldReusePrebuilt({ GITHUB_ACTIONS: "true" }), false)).toBe("server/src/_worker.ts");
+    expect(shouldReusePrebuilt({ GITHUB_ACTIONS: "false" })).toBe(false);
   });
 });
