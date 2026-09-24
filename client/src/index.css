@@ -1,14 +1,81 @@
 @import "./base.css";
 @import "@rin/ui/styles.css";
 
-/* cantarell-latin-400-normal */
+/* Self-hosted, latin subset, from @fontsource 5.3.0 (OFL-1.1, licences in
+   public/fonts). Self-hosted because the CSP is font-src 'self' data:. */
+
 @font-face {
-  font-family: "Cantarell";
+  font-family: "Newsreader";
   font-style: normal;
-  font-display: auto;
+  font-display: swap;
   font-weight: 400;
-  src: url(/cantarell_5.0.12_latin-400-normal.woff2) format("woff2"),
-    url(/cantarell_5.0.13_latin-400-normal.woff) format("woff");
+  src: url(/fonts/newsreader-latin-400-normal.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191,
+    U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Newsreader";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url(/fonts/newsreader-latin-500-normal.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191,
+    U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Newsreader";
+  font-style: italic;
+  font-display: swap;
+  font-weight: 400;
+  src: url(/fonts/newsreader-latin-400-italic.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191,
+    U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url(/fonts/ibm-plex-sans-latin-400-normal.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191,
+    U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url(/fonts/ibm-plex-sans-latin-600-normal.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191,
+    U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url(/fonts/ibm-plex-mono-latin-400-normal.woff2) format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191,
+    U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url(/fonts/ibm-plex-mono-latin-500-normal.woff2) format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
     U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191,
     U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
@@ -17,8 +84,9 @@
 body {
   background: rgb(var(--rin-canvas-rgb));
   color: rgb(var(--rin-text-rgb));
-  font-family: Cantarell, "Source Han Serif CN VF", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", sans-serif !important;
+  font-family: var(--font-ui);
 }
+
 
 textarea:focus {
   outline: none;
@@ -26,7 +94,7 @@ textarea:focus {
 
 .wmde-markdown {
   background-color: rgb(var(--rin-surface-rgb));
-  font-family: Cantarell, "Source Han Serif CN VF", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", sans-serif !important;
+  font-family: var(--font-read) !important;
 }
 
 .w-md-editor {
@@ -209,185 +277,305 @@ a.toc-link {
   @apply bg-theme;
 }
 
-/* Pearcache CLI theme */
-:root {
+
+/* Pearcache blog theme: quiet terminal chrome around an editorial reading
+   column. One accent, no outlined boxes, and no page frame: the old fixed
+   body::before border sat above the content at z-index 100 and the page
+   scrolled underneath it. Everything below reads the tokens in this block. */
+:root,
+[data-color-mode="dark"] {
   color-scheme: dark;
-  --bg-base: #111017;
-  --text-phosphor: #f0b35a;
-  --text-body: #ded9e8;
-  --glass-bg: rgb(24 22 34 / 0.94);
-  --glass-border: rgb(240 179 90 / 0.72);
-  --link-hover: #ffffff;
-  --theme-rgb: 240 179 90;
-  --theme-hover-rgb: 255 205 125;
-  --theme-active-rgb: 196 135 56;
-  --rin-canvas-rgb: 17 16 23;
-  --rin-surface-rgb: 24 22 34;
-  --rin-surface-muted-rgb: 32 29 45;
-  --rin-surface-hover-rgb: 45 40 62;
-  --rin-surface-active-rgb: 58 50 78;
-  --rin-text-rgb: 222 217 232;
-  --rin-text-muted-rgb: 169 161 184;
-  --rin-border-rgb: 240 179 90;
-  --matrix-green: #00ff41;
-  --matrix-green-soft: rgb(0 255 65 / 0.14);
-  --matrix-green-border: rgb(0 255 65 / 0.55);
-  --rin-radius-control: 0;
-  --rin-radius-surface: 2px;
+  --bg-base: #16140f;
+  --text-body: #e8e4dc;
+  --text-muted: #9a9285;
+  --line: #2a2620;
+  --accent: #d7a35f;
+  --accent-hover: #efc486;
+  --on-accent: #16140f;
+  --code-bg: #1e1b15;
+  --theme-rgb: 215 163 95;
+  --theme-hover-rgb: 230 184 119;
+  --theme-active-rgb: 184 134 74;
+  --rin-canvas-rgb: 22 20 15;
+  --rin-surface-rgb: 30 27 21;
+  --rin-surface-muted-rgb: 35 31 24;
+  --rin-surface-hover-rgb: 42 38 32;
+  --rin-surface-active-rgb: 51 46 38;
+  --rin-text-rgb: 232 228 220;
+  --rin-text-muted-rgb: 154 146 133;
+  --rin-border-rgb: 42 38 32;
+  --rin-radius-control: 6px;
+  --rin-radius-surface: 8px;
+  --font-ui: "IBM Plex Sans", "Noto Sans SC", "PingFang SC", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  --font-read: "Newsreader", "Source Han Serif CN VF", "Noto Serif SC", Georgia, serif;
 }
 
+/* Contrast, WCAG: text 14.5:1 / 14.9:1, muted 6.0:1 / 5.3:1, accent 8.1:1 /
+   5.4:1 against the page, dark / light. Recheck if any of these change. */
 [data-color-mode="light"] {
   color-scheme: light;
-  --bg-base: #f4f1e8;
-  --text-phosphor: #8b4f12;
-  --text-body: #30291f;
-  --glass-bg: rgb(255 252 244 / 0.94);
-  --glass-border: rgb(139 79 18 / 0.5);
-  --link-hover: #4f2b0a;
-  --theme-rgb: 139 79 18;
-  --theme-hover-rgb: 174 103 28;
-  --theme-active-rgb: 107 57 12;
-  --rin-canvas-rgb: 244 241 232;
-  --rin-surface-rgb: 255 252 244;
-  --rin-surface-muted-rgb: 238 232 219;
-  --rin-surface-hover-rgb: 228 219 202;
-  --rin-surface-active-rgb: 216 204 183;
-  --rin-text-rgb: 48 41 31;
-  --rin-text-muted-rgb: 105 92 75;
-  --rin-border-rgb: 139 79 18;
-  --matrix-green: #087f2b;
-  --matrix-green-soft: rgb(8 127 43 / 0.12);
-  --matrix-green-border: rgb(8 127 43 / 0.45);
-}
-
-html,
-body {
-  min-height: 100%;
+  --bg-base: #f7f4ee;
+  --text-body: #231f19;
+  --text-muted: #6b6457;
+  --line: #e4ddd0;
+  --accent: #8a5a1c;
+  --accent-hover: #6e4613;
+  --on-accent: #fffdf9;
+  --code-bg: #efe9df;
+  --theme-rgb: 138 90 28;
+  --theme-hover-rgb: 110 70 19;
+  --theme-active-rgb: 90 57 15;
+  --rin-canvas-rgb: 247 244 238;
+  --rin-surface-rgb: 255 253 249;
+  --rin-surface-muted-rgb: 239 233 223;
+  --rin-surface-hover-rgb: 231 224 211;
+  --rin-surface-active-rgb: 221 212 196;
+  --rin-text-rgb: 35 31 25;
+  --rin-text-muted-rgb: 107 100 87;
+  --rin-border-rgb: 35 31 25;
 }
 
 body {
   margin: 0;
-  padding: 32px clamp(20px, 4vw, 64px);
   background-color: var(--bg-base);
-  background-image: none;
   color: var(--text-body);
-  font-family: "Fira Code", "VT323", "Courier New", monospace !important;
-  line-height: 1.6;
+  line-height: 1.65;
 }
 
-body::before {
-  position: fixed;
-  inset: 8px;
-  z-index: 100;
-  border: 2px solid var(--text-phosphor);
-  border-radius: 4px;
-  content: "";
-  pointer-events: none;
+/* Header: mono, lowercase, muted; the current page in the accent. */
+.site-header a,
+.site-header p {
+  font-family: var(--font-mono);
 }
 
-#root {
-  min-height: calc(100vh - 64px);
+.site-header a {
+  color: var(--text-muted) !important;
 }
 
-.terminal-nav-shell {
-  display: flex;
-  min-width: 0;
-  width: 100%;
-  align-items: center;
-  gap: 14px;
-  padding: 10px 14px;
-  border: 1px solid var(--glass-border);
-  border-radius: 3px;
-  background: var(--glass-bg);
-  box-shadow: 0 0 24px rgb(0 0 0 / 0.24);
+.site-header a:hover,
+.site-header a:focus-visible,
+.site-header a.text-theme {
+  color: var(--accent) !important;
 }
 
-.terminal-toc {
-  border-color: var(--glass-border) !important;
-  transform: translateY(0);
-}
-
-.terminal-toc h2,
-.terminal-toc li.text-theme {
-  color: var(--matrix-green) !important;
-}
-
-.terminal-toc li:hover {
-  color: var(--matrix-green);
-}
-
-.terminal-nav-shell-mobile {
-  width: 100%;
-}
-
-.terminal-brand {
-  flex: 0 0 auto;
-  max-width: 190px;
-}
-
-.terminal-brand-title {
+.site-header a[aria-label="home"] p {
   color: var(--text-body) !important;
-  font-size: 0.95rem !important;
-  line-height: 1.2;
+  font-weight: 500;
 }
 
-.terminal-brand-description {
-  color: var(--rin-text-muted) !important;
-  font-size: 0.65rem !important;
-  line-height: 1.2;
+.site-header button {
+  color: var(--text-muted);
 }
 
-.terminal-nav-prompt {
-  flex: 0 0 auto;
-  color: var(--text-phosphor);
-  font-size: 0.72rem;
-  white-space: nowrap;
-}
-
-.terminal-nav-links {
-  flex: 1 1 auto;
-  display: flex;
-  justify-content: center;
-}
-
-.terminal-nav-shell a {
+/* Surfaces: flat fills, no outlines, no glow. */
+.bg-w,
+.bg-secondary,
+.border-card,
+.rin-modal-surface,
+.w-md-editor {
   border: 0;
+  box-shadow: none;
+}
+
+.border-card {
+  padding: 16px;
+}
+
+/* The article sits on the page, not in a box. */
+main article[aria-label] {
+  background: transparent;
+}
+
+main article[aria-label] h1 {
+  font: 500 clamp(2rem, 1.4rem + 2.2vw, 2.75rem) / 1.12 var(--font-read);
+  letter-spacing: -0.01em;
   color: var(--text-body);
-  text-transform: lowercase;
+  text-wrap: balance;
 }
 
-.terminal-nav-shell a::before {
-  color: var(--text-phosphor);
-  content: "./";
+main article[aria-label] h1::after {
+  display: block;
+  width: 48px;
+  height: 2px;
+  margin-top: 20px;
+  background: var(--accent);
+  content: "";
 }
 
-.terminal-nav-shell a:hover,
-.terminal-nav-shell a:focus-visible,
-.terminal-nav-shell a.text-theme {
-  color: var(--text-phosphor) !important;
+main article[aria-label] .text-\[12px\] {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--text-muted);
 }
 
-.terminal-nav-shell a.text-theme::after {
-  content: " _";
-  animation: terminal-cursor 1s step-end infinite;
+a[href^="/hashtag/"] {
+  font-family: var(--font-mono);
 }
 
-.terminal-nav-shell img {
-  border-color: var(--glass-border);
-}
-
-.terminal-nav-shell p {
+/* Reading column. */
+.toc-content {
+  font-family: var(--font-read);
+  font-size: 1.1875rem;
+  line-height: 1.7;
   color: var(--text-body) !important;
 }
 
+.toc-content > p:first-of-type::first-letter {
+  float: left;
+  padding: 6px 10px 0 0;
+  color: var(--accent);
+  font-size: 3.9em;
+  line-height: 0.9;
+}
+
+.toc-content > p {
+  margin-top: 1em;
+}
+
+.toc-content h1,
+.toc-content h2,
+.toc-content h3,
+.toc-content h4 {
+  margin-top: 1.6em;
+  font-family: var(--font-read);
+  font-weight: 500;
+  line-height: 1.25;
+  color: var(--text-body);
+  text-transform: none;
+}
+
+.toc-content h1 {
+  font-size: 1.9em;
+}
+
+.toc-content h2 {
+  font-size: 1.55em;
+}
+
+.toc-content h3 {
+  font-size: 1.25em;
+}
+
+.toc-content a {
+  color: var(--accent) !important;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  text-underline-offset: 3px;
+}
+
+.toc-content a:hover {
+  color: var(--accent-hover) !important;
+  text-decoration-color: currentColor;
+}
+
+.toc-content blockquote {
+  border-color: var(--accent) !important;
+  color: var(--text-muted) !important;
+}
+
+/* react-syntax-highlighter renders pre > div.group > div with an inline
+   background and font; !important is what beats an inline style. */
+.toc-content pre,
+.toc-content pre div {
+  border-radius: 6px;
+  background: var(--code-bg) !important;
+}
+
+.toc-content pre div,
+.toc-content pre code,
+.terminal-inline-code {
+  font-family: var(--font-mono) !important;
+}
+
+.terminal-inline-code {
+  border: 0;
+  background: var(--code-bg) !important;
+  color: var(--text-body) !important;
+  font-size: 0.85em;
+}
+
+/* Table of contents: small mono, the current section in the accent. */
+.terminal-toc {
+  border: 0;
+  background: transparent !important;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.terminal-toc h2 {
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.terminal-toc li:hover,
+.terminal-toc li.text-theme {
+  color: var(--accent) !important;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-weight: 600;
+  text-wrap: balance;
+}
+
+a {
+  transition: color 0.15s ease-in-out;
+}
+
+hr {
+  border-color: var(--line);
+}
+
+/* Fields need their own fill and edge: on a card they share its surface
+   colour, and utility classes reset the border, so a plain `input` rule loses.
+   The :not() chain is for specificity as much as for the exclusions. */
+input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]),
+textarea,
+select {
+  border: 1px solid color-mix(in srgb, var(--text-muted) 35%, transparent);
+  background-color: rgb(var(--rin-surface-muted-rgb));
+  font-family: inherit;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted) !important;
+}
+
+/* Accent-filled controls take dark text; white on amber is 2:1. */
+[class*="bg-theme"] {
+  color: var(--on-accent) !important;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* Footer theme switch. */
 .terminal-theme-switch {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  padding: 3px;
-  border: 1px solid var(--glass-border);
-  border-radius: 3px;
-  background: var(--glass-bg);
+  padding: 2px;
+  border-radius: 8px;
+  background: rgb(var(--rin-surface-rgb));
 }
 
 .terminal-theme-button {
@@ -396,159 +584,16 @@ body::before {
   height: 30px;
   align-items: center;
   justify-content: center;
-  border: 0 !important;
-  background: transparent !important;
-  color: var(--text-body) !important;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
 }
 
 .terminal-theme-button:hover:not(:disabled),
-.terminal-theme-button:active:not(:disabled),
 .terminal-theme-button-active {
-  background: var(--text-phosphor) !important;
-  color: var(--bg-base) !important;
-}
-
-.terminal-theme-button:focus-visible {
-  outline: 1px solid var(--text-phosphor);
-  outline-offset: -2px;
-}
-
-[data-color-mode="light"] .terminal-nav-shell a.dark\:text-white {
-  color: var(--text-body) !important;
-}
-
-[data-color-mode="light"] .terminal-nav-shell a:hover,
-[data-color-mode="light"] .terminal-nav-shell a:focus-visible {
-  color: var(--text-phosphor) !important;
-}
-
-main,
-article,
-.wmde-markdown {
-  color: var(--text-body);
-}
-
-.terminal-inline-code {
-  border: 1px solid var(--matrix-green-border);
-  background: var(--matrix-green-soft) !important;
-  color: var(--matrix-green) !important;
-  border-radius: 2px !important;
-  box-shadow: 0 0 10px rgb(0 255 65 / 0.08);
-}
-
-.toc-content blockquote {
-  border-color: var(--matrix-green) !important;
-  color: var(--matrix-green) !important;
-}
-
-.toc-content a {
-  color: var(--matrix-green);
-}
-
-main > div,
-article {
-  border-color: rgb(240 179 90 / 0.38);
-}
-
-@keyframes terminal-cursor {
-  0%,
-  100% {
-    opacity: 1;
-  }
-
-  50% {
-    opacity: 0;
-  }
-}
-
-/* Theme shared surfaces without changing the layout spacing owned by components. */
-.bg-w,
-.bg-secondary,
-.border-card,
-.rin-modal-surface,
-.wmde-markdown,
-.w-md-editor {
-  background: var(--glass-bg) !important;
-  border: 1px solid var(--glass-border);
-  border-radius: 2px !important;
-  box-shadow: 0 4px 30px rgb(0 0 0 / 0.16);
-}
-
-.border-card {
-  padding: 16px;
-}
-
-h1,
-h2,
-h3,
-h4 {
-  color: var(--text-phosphor);
-  font-weight: normal;
-  text-transform: lowercase;
-  text-wrap: balance;
-}
-
-a {
-  color: var(--text-phosphor);
-  text-decoration: none;
-  transition: color 0.2s ease-in-out, text-shadow 0.2s ease-in-out;
-}
-
-a:hover,
-a:focus-visible {
-  color: var(--link-hover);
-  text-shadow: 0 0 8px rgb(0 255 65 / 0.4);
-}
-
-button,
-input,
-textarea,
-select {
-  background: color-mix(in srgb, var(--glass-bg) 78%, var(--bg-base)) !important;
-  color: var(--text-phosphor) !important;
-  border: 1px solid var(--text-phosphor) !important;
-  border-radius: 0 !important;
-  font-family: inherit;
-}
-
-button {
-  cursor: pointer;
-  transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
-}
-
-button:hover:not(:disabled),
-button:active:not(:disabled) {
-  background: var(--text-phosphor) !important;
-  color: var(--bg-base) !important;
-}
-
-/* Keep image avatars and status dots circular inside the square UI. */
-img.rounded-full,
-div.rounded-full.bg-theme {
-  border-radius: 9999px !important;
-}
-
-/* Terminal-style dividers and form controls. */
-hr {
-  border-color: var(--glass-border);
-}
-
-input::placeholder,
-textarea::placeholder {
-  color: color-mix(in srgb, rgb(var(--rin-text-muted-rgb)), transparent 25%) !important;
-}
-
-button:focus-visible,
-input:focus-visible,
-textarea:focus-visible,
-select:focus-visible {
-  outline: 2px solid var(--text-phosphor);
-  outline-offset: 2px;
-}
-
-::selection {
-  background: var(--text-phosphor);
-  color: var(--bg-base);
+  background: rgb(var(--rin-surface-active-rgb));
+  color: var(--accent);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -559,30 +604,5 @@ select:focus-visible {
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
-  }
-}
-
-@media (max-width: 640px) {
-  body {
-    padding: 18px 12px;
-  }
-
-  body::before {
-    inset: 5px;
-    border-width: 1px;
-  }
-
-  #root {
-    min-height: calc(100vh - 36px);
-  }
-
-  .terminal-nav-shell {
-    gap: 8px;
-    padding: 8px;
-    flex-wrap: wrap;
-  }
-
-  .terminal-nav-prompt {
-    display: none;
   }
 }

@@ -57,10 +57,20 @@ export function normalizeThemeColor(value: string | undefined | null) {
   return normalizeHex(value);
 }
 
+const THEME_PROPERTIES = ["--theme-rgb", "--theme-hover-rgb", "--theme-active-rgb"] as const;
+
 export function applyThemeColor(value: string | undefined | null) {
-  const color = normalizeHex(value);
   const root = document.documentElement;
 
+  // No colour configured: leave the accent to the stylesheet, which sets one
+  // per colour mode. Writing the default inline beat index.css everywhere, so
+  // an unset site was pink whatever its CSS said.
+  if (!value || !/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(value.trim())) {
+    for (const property of THEME_PROPERTIES) root.style.removeProperty(property);
+    return;
+  }
+
+  const color = normalizeHex(value);
   root.style.setProperty("--theme-rgb", toCssRgb(hexToRgb(color)));
   root.style.setProperty("--theme-hover-rgb", toCssRgb(shade(color, -0.3)));
   root.style.setProperty("--theme-active-rgb", toCssRgb(shade(color, -0.4)));
