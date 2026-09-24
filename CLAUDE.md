@@ -128,13 +128,15 @@ and mirrors the existing delete route's gate.
 anonymous request could store an arbitrarily large row in D1. Capped at
 `MAX_CONTENT` (10,000) and `MAX_FIELD` (200).
 
-### OPEN — `/blob/*` is unscoped
+### REAL, FIXED 23 Sep 2026 — `/blob/*` was unscoped
 
-`getStorageObject` passes the key straight to `R2_BUCKET.get()` with no folder
-scoping, so it is not limited to `S3_FOLDER` (`images/`). Unauthenticated. Low
-risk *today* only because that bucket already backs public
-`images.pearcache.com` — but it means **never put anything private in
-`pearcache-images`.** Not fixed; scope the prefix if that assumption changes.
+`getStorageObject` passed the key straight to the bucket with no folder
+scoping, so it was not limited to `S3_FOLDER` (`images/`). Unauthenticated.
+It was worse than this note first said: the key was also pasted into the S3
+URL unescaped, so `/api/blob/%3Flist-type%3D2` became a signed ListObjectsV2
+on the whole bucket. Fixed in #19; see "Pre-public fixes" at the end of this
+file. Still: **never put anything private in `pearcache-images`**, because
+`images.pearcache.com` serves the bucket publicly anyway.
 
 ### REAL, FIXED — upload parsed before it authenticated
 
@@ -167,8 +169,6 @@ opposite, offering a form the server would now refuse.
 Note the server default is the authority. `server/src/services/__tests__/comments.test.ts`
 switches both on in `beforeEach`, because those tests are about what happens
 once comments are enabled.
-
-### OPEN — `/blob/*` is unscoped
 
 ### Credentials
 
@@ -1311,3 +1311,67 @@ Three things the README asserted were wrong, all checked rather than assumed:
 disagrees with `README.md` on these three points. Left alone deliberately rather
 than machine-translating fork-specific operational notes; the authoritative
 statement of all of this is here in CLAUDE.md.
+
+## Pre-public fixes, and a deploy that shipped the wrong build — 23 September 2026
+
+A security pass before taking the blog out from behind Access found four
+things worth fixing first. They are #19 (`2fe14b1`); the PR description has
+the mechanism and the tests for each:
+
+1. `/blob/*` scoped to `S3_FOLDER`, and storage keys percent-encoded wherever
+   an S3 URL is built (the ListObjectsV2 hole above).
+2. Login tokens expire after 7 days, and a token without `exp` is refused.
+   Every token issued before the deploy stopped working, whatever the secret.
+3. Failed logins throttled: five per IP per 15 minutes, keyed on
+   `cf-connecting-ip` only. Table `login_attempts`, migration `0013.sql`.
+4. Anonymous search leaves out drafts and unlisted posts.
+
+`JWT_SECRET` was rotated in `.env.local` before the deploy, so the deploy's
+secret sync set the new value. **Being logged out proves nothing about the
+rotation** (see 2); only the value in `.env.local` does.
+
+### The first deploy of #19 shipped the 16 Sep bundle
+
+`bun run deploy` printed `Current Version ID: bb68a388…`, and the deployment
+was annotated `2fe14b1`, the right commit. The migration ran
+(`migration_version` = 13, `login_attempts` present). **None of the code was
+live.** Searching the active script for `Too many failed login attempts` and
+`login_attempts` found neither.
+
+Cause: `runCloudflareDeploy` used `dist/server/_worker.js` whenever that file
+existed, and only bundled `server/src/_worker.ts` when it did not. The local
+`dist/server/_worker.js` was from 16 Sep 21:09 PDT and had never been rebuilt.
+`buildClient` has the same shape for `dist/client`. Nothing in the output said
+which bundle was used. The `--message` annotation comes from the checkout's
+HEAD, not from the bundle, so it named a commit the bundle did not contain.
+
+Recovered by deleting `dist/server` and deploying again: version `425d9758`,
+deployment `a36f4238` (24 Sep 04:05Z), with all four fixes found in the
+active script.
+
+**The 18 Sep deploys (`7886b9e`, `d394409`) almost certainly shipped the same
+16 Sep bundle.** It predates both, and nothing rebuilt it until 23 Sep. They
+lost nothing that runs: the only `server/src` change after the bundle's source
+commit (`ddf2be3`) was comments in `fetch-handler.ts`. Their `run_worker_first`
+change did take effect, because it lives in the generated `wrangler.toml`, not
+in the bundle.
+
+**Fixed:** `dist/` is reused only when `GITHUB_ACTIONS=true`. That is
+`deploy.yml`'s case, which restores the artifacts `build.yml` made for the
+commit it deploys. Everywhere else the deploy bundles the server from source
+and rebuilds the client, and it prints `📦 Server entry: …` so the output shows
+which one ran. A local deploy is slower by one client build (about 30 s here). That is the
+price of the annotation being true.
+
+### Verifying a deploy: read the code, not the label
+
+- **Search the active script for a string only the new code contains.**
+  `GET /accounts/:id/workers/scripts/rin-server/content/v2` returns it. The
+  version ID and the `--message` annotation both looked right on the
+  deploy that shipped nothing.
+- **Do it straight after the deploy.** Asked for four different versions
+  with `?version=`, that endpoint returned byte-identical content, including
+  the new strings for the 18 Sep versions, which cannot have had them. It
+  only ever returns the active script. So an old version's code cannot be
+  read back this way; check each deploy while it is the active one.
+- A green CI run on `main` says nothing here. This site deploys by hand.
