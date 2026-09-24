@@ -152,6 +152,13 @@ export function createMockDB() {
             UNIQUE(key, type)
         );
 
+        -- Login throttle (server/sql/0013.sql)
+        CREATE TABLE IF NOT EXISTS login_attempts (
+            ip TEXT PRIMARY KEY NOT NULL,
+            failures INTEGER DEFAULT 0 NOT NULL,
+            window_start INTEGER NOT NULL
+        );
+
         CREATE INDEX IF NOT EXISTS idx_cache_type ON cache(type);
         CREATE INDEX IF NOT EXISTS idx_cache_key ON cache(key);
     `);

@@ -19,20 +19,8 @@ export async function putObject(
     body: Blob | ArrayBuffer | Uint8Array | string,
     contentType?: string
 ) {
-    const endpoint = env.S3_ENDPOINT;
-    const bucket = env.S3_BUCKET;
-    const forcePathStyle = env.S3_FORCE_PATH_STYLE === 'true';
+    const url = buildS3ObjectUrl(env, key);
 
-    // Construct URL based on path-style or virtual-hosted style
-    let url: string;
-    if (forcePathStyle) {
-        url = path_join(endpoint, bucket, key);
-    } else {
-        // Virtual-hosted style: https://bucket.endpoint/key
-        const urlObj = new URL(endpoint);
-        url = `${urlObj.protocol}//${bucket}.${urlObj.host}/${key}`;
-    }
-    
     const headers: Record<string, string> = {};
     if (contentType) {
         headers["Content-Type"] = contentType;
@@ -51,15 +39,30 @@ export async function putObject(
     return response;
 }
 
+// Percent-encodes each path segment of a storage key, so the key can only ever
+// be a path. Without this, a key containing `?` or `#` becomes a query string or
+// fragment on a SIGNED request: `/api/blob/%3Flist-type%3D2` decoded to
+// `?list-type=2` and turned a GET of one object into a signed ListObjectsV2 of
+// the whole bucket. aws4fetch decodes the path before signing, so encoded keys
+// sign and resolve as the same object.
+export function encodeStorageKey(key: string) {
+    return key
+        .split("/")
+        .filter((segment) => segment.length > 0)
+        .map((segment) => encodeURIComponent(segment))
+        .join("/");
+}
+
 export function buildS3ObjectUrl(env: Env, key: string): string {
     const endpoint = env.S3_ENDPOINT;
     const bucket = env.S3_BUCKET;
     const forcePathStyle = env.S3_FORCE_PATH_STYLE === 'true';
+    const encodedKey = encodeStorageKey(key);
 
     if (forcePathStyle) {
-        return path_join(endpoint, bucket, key);
+        return path_join(endpoint, bucket, encodedKey);
     }
 
     const urlObj = new URL(endpoint);
-    return `${urlObj.protocol}//${bucket}.${urlObj.host}/${key}`;
+    return `${urlObj.protocol}//${bucket}.${urlObj.host}/${encodedKey}`;
 }

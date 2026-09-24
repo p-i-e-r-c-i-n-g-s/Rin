@@ -72,8 +72,27 @@ export function BlobService(): Hono {
             return c.text("Blob key is required", 400);
         }
 
+        let storageKey: string;
         try {
-            const response = await profileAsync(c, "blob_fetch", () => getStorageObject(env, decodeURIComponent(key)));
+            storageKey = decodeURIComponent(key);
+        } catch {
+            return c.text("Invalid blob key", 400);
+        }
+
+        // This route is public, so it serves uploads and nothing else: keys must
+        // sit under S3_FOLDER, with no dot segments that could climb out of it.
+        // Without the prefix check it would hand out anything in the bucket,
+        // including the feed cache and any object not meant to be linked.
+        const folder = (env.S3_FOLDER || "").replace(/^\/+|\/+$/g, "");
+        if (
+            storageKey.split("/").some((segment) => segment === "." || segment === "..") ||
+            (folder && !storageKey.startsWith(`${folder}/`))
+        ) {
+            return c.text("Not found", 404);
+        }
+
+        try {
+            const response = await profileAsync(c, "blob_fetch", () => getStorageObject(env, storageKey));
 
             if (!response) {
                 return c.text("Not found", 404);

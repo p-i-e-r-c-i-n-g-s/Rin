@@ -57,9 +57,12 @@ export async function searchFeedPage(db: DB, options: SearchFeedPageOptions) {
         like(feeds.summary, searchPattern),
         like(feeds.alias, searchPattern),
     );
+    // Anonymous search must match the public feed list: published AND listed.
+    // Filtering drafts alone let an unlisted post surface for anyone who
+    // searched a word from it.
     const where = options.admin
         ? searchWhere
-        : and(searchWhere, eq(feeds.draft, 0));
+        : and(searchWhere, eq(feeds.draft, 0), eq(feeds.listed, 1));
 
     const [sizeRows, rows] = await Promise.all([
         db.select({ count: count() }).from(feeds).where(where),
