@@ -1,5 +1,7 @@
 import { $ } from "bun";
-import { readdir, unlink } from "node:fs/promises";
+import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import stripIndent from "strip-indent";
 import {
   fixTopField,
@@ -99,7 +101,11 @@ async function syncWorkerSecrets(workerName: string) {
     return true;
   }
 
-  const tempFile = ".wrangler-secrets.json";
+  // Outside the checkout, in a directory only this user can read: a deploy
+  // killed before the `finally` below used to leave every secret in plaintext
+  // in the repo root, one `git add -A` from a public commit.
+  const tempDir = await mkdtemp(join(tmpdir(), "rin-secrets-"));
+  const tempFile = join(tempDir, "secrets.json");
   await Bun.write(tempFile, JSON.stringify(secrets, null, 2));
 
   try {
@@ -113,7 +119,7 @@ async function syncWorkerSecrets(workerName: string) {
     console.log(`✅ Synced ${secretKeys.length} worker secret(s)`);
     return true;
   } finally {
-    await unlink(tempFile).catch(() => {});
+    await rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
 }
 

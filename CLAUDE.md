@@ -1637,3 +1637,24 @@ re-enabled:
   now be digits, else 0.
 - No `${{ }}` expression is interpolated into a `run:` or `script:` body any
   more; values arrive through `env:`. Checked with actionlint 1.7.7: clean.
+
+### Three more from the same sweep
+
+- **The deploy's secrets file now lives outside the checkout**, in a
+  `mkdtemp` directory under the OS temp dir (mode 0700), removed in the
+  `finally`. The `.gitignore` entry stays as a second line of defence.
+- **A literal `%` in a tag or search keyword was a 500.** Hono has already
+  percent-decoded `c.req.param()`; the extra `decodeURI` turned `100%` (sent as
+  `100%25`) into a `URIError`. Both calls are gone. Behind it was an older bug:
+  `escapeLikePattern` backslash-escapes `%` and `_`, but drizzle's `like()` adds
+  no `ESCAPE` clause, so SQLite read the backslash literally and such keywords
+  matched nothing. `likeEscaped()` emits `ESCAPE '\'`.
+- **`GET /tag` published the tags of hidden posts.** It counted every
+  `feed_hashtags` row, so an anonymous caller saw tags used only on drafts and
+  unlisted posts, with their counts. It now counts public posts only for
+  non-admins and drops tags with none, and `GET /tag/:name` answers 404 for a
+  tag used only on hidden posts. Note the existing test "should exclude draft
+  feeds for non-admin users" could never fail: it asserts `f.draft !== 1` on
+  rows whose `draft` column is not selected. The new tests check post ids.
+
+All five new server tests fail on the previous code and pass now.

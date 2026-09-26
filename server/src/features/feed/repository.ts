@@ -1,4 +1,4 @@
-import { and, count, desc, eq, like, or } from "drizzle-orm";
+import { and, count, desc, eq, or, sql, type AnyColumn } from "drizzle-orm";
 import type { DB } from "../../core/hono-types";
 import { feeds } from "../../db/schema";
 
@@ -41,6 +41,13 @@ function escapeLikePattern(keyword: string): string {
     return keyword.replace(/[%_\\]/g, (char) => `\\${char}`);
 }
 
+// escapeLikePattern's backslashes only mean something with an ESCAPE clause,
+// and drizzle's like() emits none. Without it SQLite read `\%` as a literal
+// backslash then a wildcard, so any keyword containing % or _ matched nothing.
+function likeEscaped(column: AnyColumn, pattern: string) {
+    return sql`${column} LIKE ${pattern} ESCAPE '\\'`;
+}
+
 export async function searchFeedPage(db: DB, options: SearchFeedPageOptions) {
     const trimmed = options.keyword ? options.keyword.trim() : "";
     if (!trimmed) {
@@ -52,10 +59,10 @@ export async function searchFeedPage(db: DB, options: SearchFeedPageOptions) {
     }
     const searchPattern = `%${escapeLikePattern(trimmed)}%`;
     const searchWhere = or(
-        like(feeds.title, searchPattern),
-        like(feeds.content, searchPattern),
-        like(feeds.summary, searchPattern),
-        like(feeds.alias, searchPattern),
+        likeEscaped(feeds.title, searchPattern),
+        likeEscaped(feeds.content, searchPattern),
+        likeEscaped(feeds.summary, searchPattern),
+        likeEscaped(feeds.alias, searchPattern),
     );
     // Anonymous search must match the public feed list: published AND listed.
     // Filtering drafts alone let an unlisted post surface for anyone who

@@ -72,6 +72,15 @@ describe("SearchService", () => {
         expect(adminResult.size).toBe(3);
     });
 
+    it("searches for a keyword containing a literal percent sign", async () => {
+        await db.insert(feeds).values([{ title: "Growth 100% organic", content: "x", uid: 1, draft: 0, listed: 1 }]);
+
+        const response = await app.request("/100%25", {}, env);
+
+        expect(response.status).toBe(200);
+        expect((await response.json() as any).data.map((feed: any) => feed.title)).toEqual(["Growth 100% organic"]);
+    });
+
     it("isolates administrator search cache entries from public results", async () => {
         await clientConfig.set("cache.enabled", true);
         await db.insert(feeds).values([

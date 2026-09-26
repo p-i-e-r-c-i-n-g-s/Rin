@@ -44,6 +44,18 @@ describe('TagService', () => {
             expect(integrationTag.feeds).toBe(1);
         });
 
+        it('counts only public posts, and hides tags used on hidden posts alone, for anonymous callers', async () => {
+            sqlite.exec(`INSERT INTO feeds (id, title, content, uid, draft, listed) VALUES (3, 'Draft', 'Content', 1, 1, 1)`);
+            sqlite.exec(`INSERT INTO feeds (id, title, content, uid, draft, listed) VALUES (4, 'Unlisted', 'Content', 1, 0, 0)`);
+            sqlite.exec(`INSERT INTO hashtags (id, name) VALUES (3, 'secret-project')`);
+            sqlite.exec(`INSERT INTO feed_hashtags (feed_id, hashtag_id) VALUES (3, 1), (4, 1), (3, 3), (4, 3)`);
+
+            const data = await (await app.request('/', { method: 'GET' }, env)).json() as any[];
+
+            expect(data.find((t: any) => t.name === 'test').feeds).toBe(2);
+            expect(data.find((t: any) => t.name === 'secret-project')).toBeUndefined();
+        });
+
         it('should return empty array when no tags exist', async () => {
             sqlite.exec('DELETE FROM feed_hashtags');
             sqlite.exec('DELETE FROM hashtags');
@@ -82,6 +94,29 @@ describe('TagService', () => {
             const res = await app.request('/nonexistent', { method: 'GET' }, env);
             
             expect(res.status).toBe(404);
+        });
+
+        it('does not return hidden posts, or acknowledge a tag used only on them, to anonymous callers', async () => {
+            sqlite.exec(`INSERT INTO feeds (id, title, content, uid, draft, listed) VALUES (3, 'Draft', 'Content', 1, 1, 1)`);
+            sqlite.exec(`INSERT INTO feeds (id, title, content, uid, draft, listed) VALUES (4, 'Unlisted', 'Content', 1, 0, 0)`);
+            sqlite.exec(`INSERT INTO hashtags (id, name) VALUES (3, 'secret-project')`);
+            sqlite.exec(`INSERT INTO feed_hashtags (feed_id, hashtag_id) VALUES (3, 1), (4, 1), (3, 3), (4, 3)`);
+
+            const shared = await (await app.request('/test', { method: 'GET' }, env)).json() as any;
+            expect(shared.feeds.map((f: any) => f.id).sort()).toEqual([1, 2]);
+
+            const hiddenOnly = await app.request('/secret-project', { method: 'GET' }, env);
+            expect(hiddenOnly.status).toBe(404);
+        });
+
+        it('accepts a tag name containing a literal percent sign', async () => {
+            sqlite.exec(`INSERT INTO hashtags (id, name) VALUES (3, '100%')`);
+            sqlite.exec(`INSERT INTO feed_hashtags (feed_id, hashtag_id) VALUES (1, 3)`);
+
+            const res = await app.request('/100%25', { method: 'GET' }, env);
+
+            expect(res.status).toBe(200);
+            expect((await res.json() as any).name).toBe('100%');
         });
 
         it('should exclude draft feeds for non-admin users', async () => {
