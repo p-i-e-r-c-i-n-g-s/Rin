@@ -133,6 +133,26 @@ describe('TagService', () => {
             expect(adminData.feeds.map((f: any) => f.id).sort()).toEqual([1, 2, 3, 4]);
         });
 
+        it('should 404 for non-admins on a tag used only by draft or unlisted posts', async () => {
+            sqlite.exec(`INSERT INTO feeds (id, title, content, uid, draft, listed) VALUES (3, 'Draft', 'Content', 1, 1, 1)`);
+            sqlite.exec(`INSERT INTO feeds (id, title, content, uid, draft, listed) VALUES (4, 'Unlisted', 'Content', 1, 0, 0)`);
+            sqlite.exec(`INSERT INTO hashtags (id, name) VALUES (3, 'secret-project')`);
+            sqlite.exec(`INSERT INTO feed_hashtags (feed_id, hashtag_id) VALUES (3, 3), (4, 3)`);
+
+            // A 200 with an empty feed list confirmed the hidden tag exists.
+            // Anonymous callers must get the same answer as for a tag that
+            // never existed.
+            const res = await app.request('/secret-project', { method: 'GET' }, env);
+            expect(res.status).toBe(404);
+            expect(await res.text()).toBe('Not found');
+
+            const adminRes = await app.request('/secret-project', { method: 'GET', headers: ADMIN }, env);
+            expect(adminRes.status).toBe(200);
+            const adminData = await adminRes.json() as any;
+            expect(adminData.name).toBe('secret-project');
+            expect(adminData.feeds.map((f: any) => f.id).sort()).toEqual([3, 4]);
+        });
+
         it('should include hashtags in feed data', async () => {
             const res = await app.request('/test', { method: 'GET' }, env);
             

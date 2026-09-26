@@ -1718,6 +1718,12 @@ same rule as `GET /tag/:name`. Non-admins count only `draft = 0 AND listed =
 1`, and tags with no visible post are left out. Admins see what they always
 did. Tags with no posts at all are now hidden from anonymous callers too.
 
+`GET /tag/:name` had the same leak in another shape: for a tag used only by
+drafts or unlisted posts it answered **200 with the tag's name and an empty
+post list**, which confirmed the hidden tag existed. For non-admins it now
+returns the same `404 Not found` as a tag that never existed. Admins still
+get 200.
+
 **The old test could not fail.** `should exclude draft feeds for non-admin
 users` asserted `f.draft !== 1`, but `/tag/:name` selects `draft: false`, so
 `draft` was undefined on every row. Checked by mutation: with the filter
@@ -1777,7 +1783,7 @@ Left alone and worth knowing:
 
 | gate | untouched `main` (21a8bbe) | this branch |
 |---|---|---|
-| `bun run test:server` | 325 pass / 10 fail | **343 pass / 10 fail** (same 10; 18 new tests) |
+| `bun run test:server` | 325 pass / 10 fail | **344 pass / 10 fail** (same 10; 19 new tests) |
 | `bun run test:client` | 43 / 0 | 43 / 0 |
 | `bun run check --force` | exit 0 | exit 0 |
 | `bun test cli/src` | 20 / 0 | 22 / 0 |

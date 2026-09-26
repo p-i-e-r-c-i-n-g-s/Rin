@@ -74,11 +74,14 @@ export function TagService(): Hono {
                 hashtags: tagFeed.feed.hashtags.map((hashtag: any) => hashtag.hashtag)
             };
         }).filter((feed: any) => feed !== null);
-        
-        if (!tag) {
+
+        // A tag with no post a non-admin may see answers exactly like a tag
+        // that does not exist. A 200 with an empty list confirmed that a tag
+        // used only by drafts or unlisted posts was there.
+        if (!tag || (!admin && !tagFeeds?.length)) {
             return c.text('Not found', 404);
         }
-        
+
         return c.json({ ...tag, feeds: tagFeeds });
     });
 
