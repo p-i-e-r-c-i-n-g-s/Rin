@@ -51,6 +51,49 @@ describe("SearchService", () => {
         expect(secondPage.hasNext).toBe(false);
     });
 
+    it("searches for a literal % instead of failing with a 500", async () => {
+        await db.insert(feeds).values([
+            { title: "Uptime 100% guaranteed", content: "sla", uid: 1, draft: 0, listed: 1 },
+        ]);
+
+        // The client sends encodeURIComponent("100%"). Hono already decodes the
+        // param once; a second decodeURI threw URIError on the bare "%".
+        const response = await app.request("/100%25", {}, env);
+
+        expect(response.status).toBe(200);
+        const result = await response.json() as any;
+        expect(result.data.map((feed: any) => feed.title)).toEqual(["Uptime 100% guaranteed"]);
+    });
+
+    it("treats _ and % in the keyword as literal characters", async () => {
+        await db.insert(feeds).values([
+            { title: "Needle snake_case", content: "underscore", uid: 1, draft: 0, listed: 1 },
+            { title: "Needle snakeXcase", content: "not an underscore", uid: 1, draft: 0, listed: 1 },
+        ]);
+
+        // Without ESCAPE the backslash-escaped pattern matched nothing at all;
+        // unescaped, "_" would also match the X.
+        const response = await app.request("/snake_case", {}, env);
+        const result = await response.json() as any;
+        expect(result.data.map((feed: any) => feed.title)).toEqual(["Needle snake_case"]);
+
+        const percent = await app.request("/snake%25case", {}, env);
+        expect((await percent.json() as any).size).toBe(0);
+    });
+
+    it("does not decode the keyword twice", async () => {
+        await db.insert(feeds).values([
+            { title: "Needle 50 off", content: "decoded twice", uid: 1, draft: 0, listed: 1 },
+        ]);
+
+        // encodeURIComponent("50%20off"): a second decode turned it into "50 off".
+        const response = await app.request("/50%2520off", {}, env);
+
+        expect(response.status).toBe(200);
+        const result = await response.json() as any;
+        expect(result.size).toBe(0);
+    });
+
     it("never returns unlisted posts to anonymous search, but does to admins", async () => {
         await db.insert(feeds).values([
             { title: "Needle listed", content: "public", uid: 1, draft: 0, listed: 1 },

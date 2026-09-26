@@ -1,5 +1,7 @@
 import { $ } from "bun";
-import { readdir, unlink } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import stripIndent from "strip-indent";
 import {
   fixTopField,
@@ -99,8 +101,7 @@ async function syncWorkerSecrets(workerName: string) {
     return true;
   }
 
-  const tempFile = ".wrangler-secrets.json";
-  await Bun.write(tempFile, JSON.stringify(secrets, null, 2));
+  const { path: tempFile, cleanup } = await writeSecretsFile(secrets);
 
   try {
     const { exitCode, stderr } = await $`${bunExec} x wrangler secret bulk ${tempFile} --name ${workerName}`.nothrow();
@@ -113,12 +114,31 @@ async function syncWorkerSecrets(workerName: string) {
     console.log(`✅ Synced ${secretKeys.length} worker secret(s)`);
     return true;
   } finally {
-    await unlink(tempFile).catch(() => {});
+    await cleanup();
   }
 }
 
-// ./dist is reused only on CI, where deploy.yml has just restored the artifacts
-// build.yml produced for the commit being deployed. Anywhere else ./dist is
+/**
+ * `wrangler secret bulk` needs the secrets in a file. That file used to be
+ * `.wrangler-secrets.json` at the repo root: world-readable under the usual
+ * umask, not gitignored, and left behind whenever a deploy was killed before
+ * the `finally` ran, one `git add -A` away from a commit. It now lives in a
+ * fresh 0700 directory under the OS temp dir, and the file itself is 0600.
+ */
+export async function writeSecretsFile(secrets: Record<string, string>) {
+  const dir = await mkdtemp(join(tmpdir(), "rin-secrets-"));
+  const path = join(dir, "secrets.json");
+  await writeFile(path, JSON.stringify(secrets, null, 2), { mode: 0o600, flag: "wx" });
+  return {
+    path,
+    cleanup: () => rm(dir, { recursive: true, force: true }),
+  };
+}
+
+// ./dist is reused only on CI, where upstream's deploy.yml has just restored the
+// artifacts build.yml produced for the commit being deployed. This fork deleted
+// deploy.yml (see CLAUDE.md), so here that branch has no caller; it is kept to
+// stay mergeable with upstream. Anywhere else ./dist is
 // whatever the last `bun run build` left behind, and nothing ties it to HEAD:
 // on 23 Sep 2026 a deploy annotated 2fe14b1 shipped a server bundle built on
 // 16 Sep, and nothing in the output said so. See CLAUDE.md.

@@ -1,4 +1,7 @@
 import { describe, expect, it } from "bun:test";
+import { readFile, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, relative } from "node:path";
 import {
   buildWranglerAssetsConfig,
   buildWranglerExposureConfig,
@@ -9,7 +12,36 @@ import {
   collectWorkerSecrets,
   pickServerMain,
   shouldReusePrebuilt,
+  writeSecretsFile,
 } from "./deploy-cf";
+
+describe("writeSecretsFile", () => {
+  it("writes an owner-only file in a private temp dir, outside the repo", async () => {
+    const { path, cleanup } = await writeSecretsFile({ JWT_SECRET: "jwt-secret" });
+    try {
+      expect(relative(tmpdir(), path).startsWith("..")).toBe(false);
+      expect(relative(process.cwd(), path).startsWith("..")).toBe(true);
+      expect((await stat(path)).mode & 0o777).toBe(0o600);
+      expect((await stat(dirname(path))).mode & 0o777).toBe(0o700);
+      expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ JWT_SECRET: "jwt-secret" });
+    } finally {
+      await cleanup();
+    }
+
+    await expect(stat(dirname(path))).rejects.toThrow();
+  });
+
+  it("gives every deploy its own directory", async () => {
+    const first = await writeSecretsFile({});
+    const second = await writeSecretsFile({});
+    try {
+      expect(dirname(first.path)).not.toBe(dirname(second.path));
+    } finally {
+      await first.cleanup();
+      await second.cleanup();
+    }
+  });
+});
 
 describe("collectWorkerSecrets", () => {
   it("includes supported non-empty worker secrets", () => {

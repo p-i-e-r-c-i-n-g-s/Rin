@@ -55,9 +55,11 @@ export const visitStats = sqliteTable("visit_stats", {
     updatedAt: updated_at,
 });
 
-// Failed admin-login attempts per client IP, for the throttle in
-// services/auth.ts. A row exists only while an IP has recent failures: it is
-// deleted on a successful login, and expired rows are swept on each failure.
+// Login attempts per client, for the throttle in services/auth.ts. `ip` holds
+// loginThrottleKey(): the IPv4 address, or the IPv6 /64 as "2001:db8:1:2::/64".
+// `failures` counts every attempt in the window, success included, because it
+// is reserved before the password is checked. A row is deleted on a successful
+// login, and expired rows are swept on each attempt.
 export const loginAttempts = sqliteTable("login_attempts", {
     ip: text("ip").primaryKey(),
     failures: integer("failures").default(0).notNull(),

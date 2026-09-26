@@ -5,6 +5,9 @@ import type { Variables } from "../../core/hono-types";
 import { setupTestApp, seedTestData, cleanupTestDB } from '../../../tests/fixtures';
 import type { Database } from 'bun:sqlite';
 
+// seedTestData makes user 2 the admin; the fixture maps this token to user 2.
+const ADMIN = { Authorization: 'Bearer mock_token_2' };
+
 describe('TagService', () => {
     let db: any;
     let sqlite: Database;
@@ -44,6 +47,22 @@ describe('TagService', () => {
             expect(integrationTag.feeds).toBe(1);
         });
 
+        it('should count only public posts, and hide tags with none, for non-admins', async () => {
+            sqlite.exec(`INSERT INTO feeds (id, title, content, uid, draft, listed) VALUES (3, 'Draft', 'Content', 1, 1, 1)`);
+            sqlite.exec(`INSERT INTO feeds (id, title, content, uid, draft, listed) VALUES (4, 'Unlisted', 'Content', 1, 0, 0)`);
+            sqlite.exec(`INSERT INTO hashtags (id, name) VALUES (3, 'secret-project')`);
+            sqlite.exec(`INSERT INTO feed_hashtags (feed_id, hashtag_id) VALUES (3, 1), (4, 1), (3, 3), (4, 3)`);
+
+            const res = await app.request('/', { method: 'GET' }, env);
+            expect(res.status).toBe(200);
+            const data = await res.json() as any;
+            expect(data.map((t: any) => [t.name, t.feeds]).sort()).toEqual([['integration', 1], ['test', 2]]);
+
+            const adminRes = await app.request('/', { method: 'GET', headers: ADMIN }, env);
+            const adminData = await adminRes.json() as any;
+            expect(adminData.map((t: any) => [t.name, t.feeds]).sort()).toEqual([['integration', 1], ['secret-project', 2], ['test', 4]]);
+        });
+
         it('should return empty array when no tags exist', async () => {
             sqlite.exec('DELETE FROM feed_hashtags');
             sqlite.exec('DELETE FROM hashtags');
@@ -78,24 +97,40 @@ describe('TagService', () => {
             expect(data.name).toBe('web dev');
         });
 
+        it('should look up a tag containing % instead of failing with a 500', async () => {
+            sqlite.exec(`INSERT INTO hashtags (id, name) VALUES (3, '100%')`);
+            sqlite.exec(`INSERT INTO feed_hashtags (feed_id, hashtag_id) VALUES (1, 3)`);
+
+            // encodeURIComponent('100%'). Hono decodes it once; a second
+            // decodeURI threw URIError on the bare '%'.
+            const res = await app.request('/100%25', { method: 'GET' }, env);
+
+            expect(res.status).toBe(200);
+            const data = await res.json() as any;
+            expect(data.name).toBe('100%');
+        });
+
         it('should return 404 for non-existent tag', async () => {
             const res = await app.request('/nonexistent', { method: 'GET' }, env);
             
             expect(res.status).toBe(404);
         });
 
-        it('should exclude draft feeds for non-admin users', async () => {
+        it('should exclude draft and unlisted feeds for non-admin users', async () => {
             sqlite.exec(`INSERT INTO feeds (id, title, content, uid, draft, listed) VALUES (3, 'Draft', 'Content', 1, 1, 1)`);
-            sqlite.exec(`INSERT INTO feed_hashtags (feed_id, hashtag_id) VALUES (3, 1)`);
+            sqlite.exec(`INSERT INTO feeds (id, title, content, uid, draft, listed) VALUES (4, 'Unlisted', 'Content', 1, 0, 0)`);
+            sqlite.exec(`INSERT INTO feed_hashtags (feed_id, hashtag_id) VALUES (3, 1), (4, 1)`);
             
+            // Asserted by id. The response selects no draft column, so the old
+            // check (every feed has draft !== 1) passed whatever came back.
             const res = await app.request('/test', { method: 'GET' }, env);
-            
             expect(res.status).toBe(200);
             const data = await res.json() as any;
-            expect(data.feeds.every((f: any) => f.draft !== 1)).toBe(true);
-            
-            sqlite.exec(`DELETE FROM feed_hashtags WHERE feed_id = 3`);
-            sqlite.exec(`DELETE FROM feeds WHERE id = 3`);
+            expect(data.feeds.map((f: any) => f.id).sort()).toEqual([1, 2]);
+
+            const adminRes = await app.request('/test', { method: 'GET', headers: ADMIN }, env);
+            const adminData = await adminRes.json() as any;
+            expect(adminData.feeds.map((f: any) => f.id).sort()).toEqual([1, 2, 3, 4]);
         });
 
         it('should include hashtags in feed data', async () => {

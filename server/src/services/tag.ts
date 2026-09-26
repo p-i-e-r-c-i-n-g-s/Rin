@@ -11,18 +11,28 @@ export function TagService(): Hono {
     // GET /tag
     app.get('/', async (c: AppContext) => {
         const db = c.get('db');
-        
+        const admin = c.get('admin');
+
         const tag_list = await profileAsync(c, 'tag_list_db', () => db.query.hashtags.findMany({
             with: {
-                feeds: { columns: { feedId: true } }
+                feeds: {
+                    columns: { feedId: true },
+                    with: { feed: { columns: { draft: true, listed: true } } }
+                }
             }
         }));
-        
-        const result = tag_list.map((tag: any) => ({
-            ...tag,
-            feeds: tag.feeds.length
-        }));
-        
+
+        // Same visibility rule as GET /tag/:name. Counting every post told
+        // anonymous readers that drafts and unlisted posts exist, and a tag
+        // used only by them published its name.
+        const isVisible = (tagFeed: any) => admin || (tagFeed.feed?.draft === 0 && tagFeed.feed?.listed === 1);
+        const result = tag_list
+            .map((tag: any) => ({
+                ...tag,
+                feeds: tag.feeds.filter(isVisible).length
+            }))
+            .filter((tag: any) => admin || tag.feeds > 0);
+
         return c.json(result);
     });
 
@@ -30,10 +40,11 @@ export function TagService(): Hono {
     app.get('/:name', async (c: AppContext) => {
         const db = c.get('db');
         const admin = c.get('admin');
-        const nameDecoded = decodeURI(c.req.param('name'));
-        
+        // Already percent-decoded by Hono; a second decodeURI threw on "%".
+        const name = c.req.param('name');
+
         const tag = await profileAsync(c, 'tag_detail_db', () => db.query.hashtags.findFirst({
-            where: eq(hashtags.name, nameDecoded),
+            where: eq(hashtags.name, name),
             with: {
                 feeds: {
                     with: {

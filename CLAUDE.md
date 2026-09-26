@@ -608,6 +608,11 @@ now *runs*, and still checks nothing.
 
 ### The `Deploy` workflow is disabled, and that fact lives outside this repo
 
+**SUPERSEDED 26 Sep 2026: `deploy.yml` is deleted.** Do not re-enable or
+restore it. Once the repo went public it was an artifact-poisoning path to a
+production deploy, not just an inert workflow. See "Pre-launch audit fixes" at
+the end of this file. The text below is kept as history.
+
 Disabled 16 Sep 2026, immediately after the section above established that it
 can only ever fail. **Nothing in `.github/workflows/deploy.yml` records this** —
 the file is untouched and still reads as a live workflow. The state is held by
@@ -627,12 +632,10 @@ so every merge to `main` produced a red `Deploy`. It cannot succeed: the
 repository has zero Actions secrets and the workflow needs six. It is also not
 the path that deploys blog.pearcache.com, so nothing is lost by it being off.
 
-**Re-enabling** — needed if the Cloudflare secrets are ever added:
-
-    gh api -X PUT repos/<owner>/<repo>/actions/workflows/352871635/enable
-
-or Actions → Deploy → ⋯ → Enable workflow. Add the six secrets first, or it
-will simply go red again.
+**Re-enabling: don't.** This paragraph used to say "add the six secrets and
+re-enable". Adding secrets is exactly what would have made the workflow
+exploitable from a fork PR. The file is deleted; if CI deploys are ever
+wanted, write a new workflow to the requirements in "Pre-launch audit fixes".
 
 **Disabling covers `workflow_dispatch` too**, so the manual "deploy this
 artifact" button is gone as well. That button never worked either, for the same
@@ -873,10 +876,11 @@ Two consequences worth keeping:
   it does not gate the deploy. A green `main` says the code is good; it says
   nothing about the site.
 
-If this is ever automated, the honest fix is the one `deploy.yml` already
-gestures at — add the six secrets, re-enable that workflow (see the note above
-on how it is disabled), and let a merge be the deploy. Until then, **a merge is
-not a release**, and this file should not imply otherwise.
+If this is ever automated, let a merge be the deploy, but **not** by adding
+secrets to upstream's `deploy.yml`, which this paragraph used to suggest. That
+file was deleted on 26 Sep 2026 as unsafe in a public repo; "Pre-launch audit
+fixes" at the end of this file lists what a replacement must do. Until then,
+**a merge is not a release**, and this file should not imply otherwise.
 
 ## Verified live from a HAR — 18 September 2026
 
@@ -1330,6 +1334,8 @@ the mechanism and the tests for each:
    Every token issued before the deploy stopped working, whatever the secret.
 3. Failed logins throttled: five per IP per 15 minutes, keyed on
    `cf-connecting-ip` only. Table `login_attempts`, migration `0013.sql`.
+   **It could be raced past; made atomic 26 Sep 2026**, see "Pre-launch
+   audit fixes" at the end.
 4. Anonymous search leaves out drafts and unlisted posts.
 
 `JWT_SECRET` was rotated in `.env.local` before the deploy, so the deploy's
@@ -1588,3 +1594,208 @@ few years ago…", and it stays there with a second image placed in front. A
 paragraph that mixes text with an inline image is skipped too, which is
 acceptable. `:has()` inside `:not()` is valid; only `:has()` inside `:has()`
 is not.
+
+## Pre-launch audit fixes — 26 September 2026
+
+A 24 Sep audit, run once the blog was public, found six things. Each was
+checked against the source, and each fix has a test that was run against the
+old code first and went red there. **Merged is not deployed:** #1, #2, #4 and
+#5 are live only after the owner's next `bun run deploy`. #3 is deploy tooling
+and #6 is CI, so neither needs a deploy.
+
+### 1. REAL, FIXED — the login throttle could be raced past
+
+The check read the failure count, hashed the password, and wrote the failure
+afterwards. Concurrent guesses all read the same stale count. Measured by the
+audit: 40 concurrent wrong logins from one IP, **all 40 evaluated** (40x 403)
+against a limit of 5. The new test reproduced exactly that, in-process, before
+the fix.
+
+**Fix:** `reserveLoginAttempt()` in `server/src/services/auth.ts` counts the
+attempt *before* the password is checked, in one statement:
+
+    INSERT ... ON CONFLICT (ip) DO UPDATE SET failures = CASE ... END,
+      window_start = CASE ... END RETURNING failures
+
+and the attempt is judged by the count it wrote itself. D1 runs a statement
+atomically, so two requests cannot both see 5. An expired window is reset by
+the `CASE` in the same statement. The sweep `DELETE` before it is housekeeping
+only; correctness does not depend on its ordering.
+
+- **Every attempt counts now, a correct one included**, and a success deletes
+  the row. So the sixth attempt in a window is refused even when it is right,
+  as before.
+- **A success resets the bucket.** Someone racing wrong guesses alongside the
+  owner's own login could get another five. Only someone holding the password
+  can cause a reset, so this is accepted, and the test does not pretend to
+  bound it.
+- **IPv6 is bucketed by /64** (`loginThrottleKey()`). A /64 is the normal
+  allocation to one subscriber, so per-address buckets gave one attacker 2^64
+  of them. IPv4-mapped IPv6 maps to the IPv4. Anything unparseable is used as
+  is. The column is still called `ip`; no migration, and old full-address rows
+  just expire.
+- **Not done, deliberately:** the password hash is one unsalted SHA-256. With
+  the throttle holding, online guessing is capped at 5 per 15 minutes per
+  client. A slow KDF only matters if the hash leaks, and the hash leaking
+  mostly means the Worker secrets leaked, which include the password. Worth
+  doing as its own change.
+
+Tests: `evaluates at most five of forty concurrent wrong passwords` (exactly
+5x 403, 35x 429), `throttles an IPv6 /64 as one client`, and unit tests for
+`loginThrottleKey`.
+
+### 2. REAL, FIXED — CORS reflected any Origin, with credentials
+
+`register-middlewares.ts` had `origin: (origin) => origin` with
+`credentials: true`. The auth cookie is `SameSite=Lax`, and Lax is about
+*site*, not origin: every other `*.pearcache.com` host is same-site, so a page
+on any of them (or an XSS on any of them) could make cookie-carrying API calls
+and read the responses. A truly cross-site origin sent no cookie, so the
+reflection mattered most for the siblings.
+
+**Fix:** `corsAllowOrigin()` allows exactly the origin of `FRONTEND_URL`
+(http/https only, so `Origin: null` can never match), plus loopback origins
+**only when the Worker itself is answering on loopback**, i.e. `wrangler dev`.
+In production the request URL is the blog's hostname, so no localhost page can
+use it. With `FRONTEND_URL` unset, nothing cross-origin is allowed.
+
+Nothing legitimate needed the old behaviour. The SPA calls the API same-origin
+(`client/src/config.ts`: `endpoint = ''`), and dev goes through Vite's proxy.
+Production sets `FRONTEND_URL`, which the `workers_dev = false` logic above
+already depends on.
+
+**One behaviour change to know:** the feeds (`/rss.xml`, `/atom.xml`,
+`/feed.json`, …) are served by the same Hono app, so browser JavaScript on
+other sites can no longer read them cross-origin. Feed readers fetch
+server-side and are unaffected. If a browser-based reader ever needs them,
+give the feed routes `*` without credentials, not a reflected origin.
+
+Test: `server/src/core/register-middlewares.test.ts`. Against the old
+middleware 4 of its 7 tests go red; the 3 that pass are the allow cases.
+
+**Confirm after the deploy** (the owner, since a session cannot reach the
+zone): `curl -sI -H 'Origin: https://evil.example' https://blog.pearcache.com/api/feed`
+must show no `access-control-allow-origin`.
+
+### 3. REAL, FIXED — the deploy wrote plaintext secrets to the repo root
+
+`syncWorkerSecrets` wrote `.wrangler-secrets.json` (JWT secret, admin
+credentials, S3 keys, GitHub OAuth secret) in the working directory, with the
+default umask, **not gitignored**, and deleted it only in a `finally`. A deploy
+killed mid-sync left it there, one `git add -A` away from a public repo.
+
+**Fix:** `writeSecretsFile()` in `cli/src/tasks/deploy-cf.ts` makes a fresh
+`mkdtemp` directory under `os.tmpdir()` (0700) and writes the file 0600 with
+`flag: "wx"`. Cleanup removes the directory. `.wrangler-secrets.json` is also
+in `.gitignore`, for any copy an older deploy left behind. **If one exists in
+the owner's checkout, delete it.**
+
+A deploy killed mid-sync can still leave the file behind, but now in the temp
+dir and readable by the owner only.
+
+### 4. REAL, FIXED — a `%` in a search or tag URL was a 500
+
+Hono's `c.req.param()` already percent-decodes. `feed.ts` (search) and
+`tag.ts` called `decodeURI` on the result, which threw `URIError` on a bare
+`%`, so `/api/search/100%25` returned a 500. It also silently rewrote a search
+for `50%20off` into `50 off`. **Fix:** the second decode is gone.
+
+The request path decodes once on each side: wouter `decodeURI`s the SPA path,
+the API client `encodeURIComponent`s it again, and Hono decodes once.
+
+**Found underneath it, also fixed:** `escapeLikePattern()` backslash-escaped
+`%` and `_`, but **SQLite's LIKE has no default escape character**, so the
+pattern searched for a literal backslash. Any search containing `_` or `%`
+(`snake_case`, `100%`) never matched anything. `likeLiteral()` in
+`features/feed/repository.ts` adds `ESCAPE '\'`. Checked on SQLite directly:
+`'snake_case' LIKE '%snake\_case%'` is 0 without the clause and 1 with it.
+
+### 5. REAL, FIXED — `GET /tag` leaked draft and unlisted tags
+
+Anonymous callers got every tag name, with counts that included drafts and
+unlisted posts. A tag used only by drafts published its name. **Fix:** the
+same rule as `GET /tag/:name`. Non-admins count only `draft = 0 AND listed =
+1`, and tags with no visible post are left out. Admins see what they always
+did. Tags with no posts at all are now hidden from anonymous callers too.
+
+**The old test could not fail.** `should exclude draft feeds for non-admin
+users` asserted `f.draft !== 1`, but `/tag/:name` selects `draft: false`, so
+`draft` was undefined on every row. Checked by mutation: with the filter
+deleted from `tag.ts`, the old assertion still passed and the new one, which
+asserts by post id, failed. It now covers unlisted posts and the admin view
+too.
+
+### 6. REAL, FIXED (latent) — `deploy.yml` deleted
+
+It ran on `workflow_run` of `Build`, and `Build` runs on `pull_request`, fork
+PRs of this public repo included. A `workflow_run` job runs in the base repo,
+with its secrets. It then trusted files inside that build's artifact, which the
+PR's own code writes:
+
+- `artifacts/build-meta/ref` decided production. A fork PR could write
+  `refs/heads/main` and get its build deployed to production.
+- `artifacts/build-meta/pr_number` was interpolated with `${{ }}` into a shell
+  `run:` and into `github-script` source, so it was also a script injection.
+
+It was `disabled_manually` with no secrets, so it was never exploitable. But
+this file used to say "add the six secrets and re-enable", and doing that
+would have armed it. Those notes are corrected above.
+
+**Deleted, not rewritten.** It never succeeded once, and the site deploys by
+hand. A rewritten deploy workflow cannot be exercised without secrets, so it
+would be one more control that has never run. If CI deploys are ever wanted,
+a new workflow must:
+
+- run only for this repo's own `main`. Better, trigger on `push` to `main`
+  and build in the same job. If it must be `workflow_run`, gate on
+  `github.event.workflow_run.head_repository.full_name == github.repository`
+  and `github.event.workflow_run.event == 'push'`;
+- take production-or-not from the event
+  (`github.event.workflow_run.head_branch`), never from artifact contents;
+- pass every value into shell and scripts through `env:`, never `${{ }}`
+  inside `run:` or `script:`;
+- deploy production through a GitHub environment with a required reviewer.
+
+**Upstream merges:** an upstream edit to `deploy.yml` will conflict as
+modify/delete. That conflict is useful: resolve it by keeping the file deleted.
+
+Left alone and worth knowing:
+- `clean.yml` ("Cleanup Preview") is `deploy.yml`'s companion. It deletes the
+  PR preview Workers that only `deploy.yml` created. It is not exploitable:
+  it uses plain `pull_request`, so fork PRs get no secrets, and it interpolates
+  only `github.event.number`. With no previews it has nothing to clean, yet
+  it runs on every closed PR (22 runs as of 26 Sep). The two newest succeeded,
+  so it is posting "Preview deployment has been cleaned up" on each closed PR,
+  which is false. It is a candidate for deletion.
+- `release.yml`'s release notes and the `docs/` release guide still tell
+  readers to trigger `deploy.yml`. That is upstream text.
+- `shouldReusePrebuilt()` (the `GITHUB_ACTIONS=true` branch in
+  `deploy-cf.ts`) now has no caller in this fork. It is kept so upstream stays
+  mergeable, and its comment says so.
+
+### Verification, and two things about this environment
+
+| gate | untouched `main` (21a8bbe) | this branch |
+|---|---|---|
+| `bun run test:server` | 325 pass / 10 fail | **343 pass / 10 fail** (same 10; 18 new tests) |
+| `bun run test:client` | 43 / 0 | 43 / 0 |
+| `bun run check --force` | exit 0 | exit 0 |
+| `bun test cli/src` | 20 / 0 | 22 / 0 |
+
+Each new test except the allow cases was also run against the old code and
+went red there. The draft-tag test was checked by mutation, as described in #5.
+
+- **The 10 server failures exist on untouched `main` too, and only in this
+  sandbox.** They are the 7 RSS and 3 favicon tests that call the fake S3
+  host. This sandbox's egress answers any host with a 5xx, and
+  `utils/s3.ts`'s `AwsClient` uses aws4fetch's default of 10 retries with
+  exponential backoff on 5xx. That runs past bun's 5-second test timeout.
+  On GitHub the host fails fast with no retry: "CI - Test and Type Check"
+  on `main` @ `21a8bbe` (run `35972987361`) is green.
+- **`bun install` is blocked here:** the session proxy refuses
+  `registry.npmmirror.com` (403), and the 803 lockfile entries pinned there
+  (see the lockfile section above) all fail. It was installed by rewriting
+  those URLs to `registry.npmjs.org` in the working copy of `bun.lock`.
+  Every tarball was still checked against its `sha512`. Then
+  `git checkout bun.lock` restored the file. **The lockfile in this change is
+  untouched**, and CI installs from it as it always has.
