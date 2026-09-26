@@ -28,7 +28,13 @@ permissions:
 jobs:
   prepare:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    # A build from a fork is never deployed. Its artifact is code the fork's
+    # author controls, and the deploy hands the Worker this repository's secrets
+    # (admin password, S3 keys) whatever environment it targets.
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+          (github.event.workflow_run.conclusion == 'success' &&
+           github.event.workflow_run.head_repository.full_name == github.repository) }}
     outputs:
       is_production: ${{ steps.meta.outputs.is_production }}
       pr_number: ${{ steps.meta.outputs.pr_number }}
@@ -44,8 +50,9 @@ jobs:
 
       - name: Download artifacts from URL
         if: ${{ github.event_name == 'workflow_dispatch' }}
+        env:
+          URL: ${{ github.event.inputs.artifact_url }}
         run: |
-          URL="${{ github.event.inputs.artifact_url }}"
           echo "Downloading from: $URL"
           
           mkdir -p ./artifacts
@@ -61,25 +68,34 @@ jobs:
 
       - name: Set deployment type
         id: meta
+        # Production is decided from the triggering event, never from the
+        # artifact: build-meta/ref is written by the build and is only as
+        # trustworthy as the code that ran it.
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          DISPATCH_ENVIRONMENT: ${{ github.event.inputs.environment }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          if [ "$EVENT_NAME" == "workflow_dispatch" ]; then
             # Manual deployment
-            if [ "${{ github.event.inputs.environment }}" == "production" ]; then
+            if [ "$DISPATCH_ENVIRONMENT" == "production" ]; then
               echo "is_production=true" >> $GITHUB_OUTPUT
             else
               echo "is_production=false" >> $GITHUB_OUTPUT
             fi
             echo "pr_number=0" >> $GITHUB_OUTPUT
           else
-            # Auto deployment from workflow_run - check ref
-            REF=$(cat ./artifacts/build-meta/ref 2>/dev/null || echo "unknown")
-            if [[ "$REF" == "refs/heads/main" || "$REF" == "refs/heads/master" ]]; then
+            # Auto deployment from workflow_run: only a push to main/master is production.
+            if [[ "$RUN_EVENT" == "push" && ( "$RUN_BRANCH" == "main" || "$RUN_BRANCH" == "master" ) ]]; then
               echo "is_production=true" >> $GITHUB_OUTPUT
             else
               echo "is_production=false" >> $GITHUB_OUTPUT
             fi
-            # Read PR number from build-meta
-            PR_NUMBER=$(cat ./artifacts/build-meta/pr_number 2>/dev/null || echo "0")
+            # The PR number still comes from build-meta, so accept digits only:
+            # it is used in a Worker name and a comment target.
+            PR_NUMBER=$(head -c 16 ./artifacts/build-meta/pr_number 2>/dev/null | tr -d '[:space:]' || true)
+            [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || PR_NUMBER=0
             echo "pr_number=${PR_NUMBER}" >> $GITHUB_OUTPUT
           fi
 
@@ -164,9 +180,10 @@ jobs:
           REPO_RSS_ENABLE: ${{ vars.RSS_ENABLE }}
           REPO_WORKER_NAME: ${{ vars.WORKER_NAME }}
           REPO_DB_NAME: ${{ vars.DB_NAME }}
+          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
+          IS_PRODUCTION: ${{ needs.prepare.outputs.is_production }}
         run: |
-          PR_NUMBER="${{ needs.prepare.outputs.pr_number }}"
-          if [[ "${{ needs.prepare.outputs.is_production }}" == "true" ]]; then
+          if [[ "$IS_PRODUCTION" == "true" ]]; then
             echo "worker_name=${REPO_WORKER_NAME:-rin-server}" >> $GITHUB_OUTPUT
             echo "db_name=${REPO_DB_NAME:-rin}" >> $GITHUB_OUTPUT
             echo "name=${REPO_NAME:-Rin}" >> $GITHUB_OUTPUT
@@ -218,9 +235,10 @@ jobs:
           RSS_DESCRIPTION: ${{ vars.RSS_DESCRIPTION || '' }}
           FRONTEND_URL: ${{ vars.FRONTEND_URL || '' }}
           CACHE_STORAGE_MODE: ${{ vars.CACHE_STORAGE_MODE || 's3' }}
+          IS_PRODUCTION: ${{ needs.prepare.outputs.is_production }}
         run: |
           set -euo pipefail
-          if [[ "${{ needs.prepare.outputs.is_production }}" == "true" ]]; then
+          if [[ "$IS_PRODUCTION" == "true" ]]; then
             bun run deploy | tee deploy_output.log
           else
             bun run deploy --preview | tee deploy_output.log
@@ -243,10 +261,13 @@ jobs:
       - name: Comment on PR
         if: needs.prepare.outputs.pr_number != '0'
         uses: actions/github-script@v7
+        env:
+          DEPLOY_URL: ${{ steps.deploy.outputs.url }}
+          PR_NUMBER: ${{ needs.prepare.outputs.pr_number }}
         with:
           script: |
-            const url = '${{ steps.deploy.outputs.url }}';
-            const prNumber = parseInt('${{ needs.prepare.outputs.pr_number }}');
+            const url = process.env.DEPLOY_URL;
+            const prNumber = parseInt(process.env.PR_NUMBER, 10);
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,

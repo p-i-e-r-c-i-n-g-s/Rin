@@ -4,7 +4,14 @@ dist/**
 .turbo
 *.db
 .env
+.env.*
+!.env.example
 .secrets
+# Written by `bun run deploy` for `wrangler secret bulk` and deleted afterwards;
+# a crashed or killed deploy leaves it behind holding every secret in plaintext.
+.wrangler-secrets.json
+.dev.vars*
+*.har
 test.ts
 *.log
 .env.production

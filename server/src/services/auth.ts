@@ -36,23 +36,29 @@ function loginClientIp(c: AppContext) {
     return c.req.header('cf-connecting-ip') || 'unknown';
 }
 
-async function assertLoginNotThrottled(db: any, ip: string, now: number) {
-    const row = await db.query.loginAttempts.findFirst({ where: eq(loginAttempts.ip, ip) });
-    if (row && row.windowStart > now - LOGIN_WINDOW_SECONDS && row.failures >= LOGIN_MAX_FAILURES) {
-        throw new RateLimitError('Too many failed login attempts. Try again later.');
-    }
-}
-
-async function recordLoginFailure(db: any, ip: string, now: number) {
-    // Sweeping expired rows first means a returning IP starts a fresh window,
-    // and the table only ever holds IPs with failures in the last window.
-    await db.delete(loginAttempts).where(lte(loginAttempts.windowStart, now - LOGIN_WINDOW_SECONDS));
-    await db.insert(loginAttempts)
+// Counts every attempt, not only failures, and does it in ONE statement before
+// the password is checked. The earlier read-then-write version let a burst of
+// concurrent requests all pass the read before any of them recorded a failure
+// (measured: 40 parallel guesses against a limit of 5, all answered 403). An
+// atomic upsert serialises them: each request gets its own position in the
+// window, and anything past LOGIN_MAX_FAILURES is refused without a hash.
+// A successful login deletes the row, so honest attempts never accumulate.
+async function reserveLoginAttempt(db: any, ip: string, now: number): Promise<number> {
+    const windowFloor = now - LOGIN_WINDOW_SECONDS;
+    // Sweeping expired rows keeps the table to IPs with recent attempts. The
+    // CASE below is what actually restarts a window, so this is housekeeping.
+    await db.delete(loginAttempts).where(lte(loginAttempts.windowStart, windowFloor));
+    const rows = await db.insert(loginAttempts)
         .values({ ip, failures: 1, windowStart: now })
         .onConflictDoUpdate({
             target: loginAttempts.ip,
-            set: { failures: sql`${loginAttempts.failures} + 1` },
-        });
+            set: {
+                failures: sql`CASE WHEN ${loginAttempts.windowStart} <= ${windowFloor} THEN 1 ELSE ${loginAttempts.failures} + 1 END`,
+                windowStart: sql`CASE WHEN ${loginAttempts.windowStart} <= ${windowFloor} THEN ${now} ELSE ${loginAttempts.windowStart} END`,
+            },
+        })
+        .returning({ attempts: loginAttempts.failures });
+    return rows[0]?.attempts ?? LOGIN_MAX_FAILURES + 1;
 }
 
 export function PasswordAuthService(): Hono<{
@@ -83,13 +89,16 @@ export function PasswordAuthService(): Hono<{
             throw new BadRequestError('Username and password are required');
         }
 
-        // Checked before the password is even hashed, so a throttled client gets
-        // the same 429 whether or not its guess would have been right.
+        // Reserved before the password is even hashed, so a throttled client
+        // gets the same 429 whether or not its guess would have been right.
         const ip = loginClientIp(c);
         const now = Math.floor(Date.now() / 1000);
-        await assertLoginNotThrottled(db, ip, now);
+        const attempt = await reserveLoginAttempt(db, ip, now);
+        if (attempt > LOGIN_MAX_FAILURES) {
+            throw new RateLimitError('Too many failed login attempts. Try again later.');
+        }
+        // The attempt is already counted, so a failure only has to refuse.
         const rejectLogin = async (): Promise<never> => {
-            await recordLoginFailure(db, ip, now);
             throw new ForbiddenError('Invalid credentials');
         };
 

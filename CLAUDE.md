@@ -1588,3 +1588,52 @@ few years ago…", and it stays there with a second image placed in front. A
 paragraph that mixes text with an inline image is skipped too, which is
 acceptable. `:has()` inside `:not()` is valid; only `:has()` inside `:has()`
 is not.
+
+## Login throttle race, CORS reflection, secrets file, deploy.yml — 26 September 2026
+
+From the 24 Sep pre-launch sweep. All four are code changes; none is deployed
+by merging (this site deploys by hand, see above).
+
+### The login throttle counted too late
+
+`assertLoginNotThrottled` read the row, the password was hashed (which yields),
+and only a failure wrote the count. A burst of concurrent guesses all passed the
+read before any failure landed: **40 parallel wrong passwords against a limit of
+5 were all answered 403**, measured in `auth.test.ts` against the old code.
+
+Now `reserveLoginAttempt` does one atomic upsert **before** the password is
+checked, restarting the window in the same statement (`CASE` on
+`window_start`), and returns the new count via `RETURNING`. Anything past 5 is a
+429 without a hash. A successful login still deletes the row, so only failures
+survive. The column is still called `failures`; it now counts attempts. Same
+burst after the change: 5 answered 403, 35 answered 429.
+
+### CORS reflected every Origin, with credentials
+
+`origin: (origin) => origin` plus `credentials: true` let any site a signed-in
+visitor opened read the API as them; the JWT cookie is `SameSite=Lax`, so it
+rides along on a fetch from a sibling subdomain. The client never needs CORS:
+`endpoint = ''` and the Vite dev server proxies `/api`. `allowedCorsOrigin` now
+allows only `FRONTEND_URL`'s own origin, and none when it is unset. Same-origin
+requests carry no CORS dependency and are unaffected.
+
+### `.wrangler-secrets.json` was not ignored
+
+`bun run deploy` writes every secret to it for `wrangler secret bulk` and deletes
+it in a `finally`. A killed deploy leaves it in the tree, where `git add -A`
+would commit it to a public repo. Ignored now, with `.env.*` (except
+`.env.example`), `.dev.vars*` and `*.har`.
+
+### `deploy.yml` trusted the build artifact
+
+Latent while the workflow is `disabled_manually`, and live the moment it is
+re-enabled:
+
+- `is_production` came from `build-meta/ref` inside the artifact. It now comes
+  from the `workflow_run` event: a `push` to `main`/`master` only.
+- A build from a **fork** was deployed to preview with this repository's
+  secrets in the Worker's env. Fork builds are now skipped in `prepare`.
+- `pr_number` from the artifact went into a Worker name and a script. It must
+  now be digits, else 0.
+- No `${{ }}` expression is interpolated into a `run:` or `script:` body any
+  more; values arrive through `env:`. Checked with actionlint 1.7.7: clean.

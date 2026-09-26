@@ -274,6 +274,17 @@ describe("PasswordAuthService", () => {
       expect((await login("admin123")).status).toBe(429);
     });
 
+    it("holds the limit against a concurrent burst", async () => {
+      // A read-then-write throttle let every request in a burst pass the read
+      // before any failure was written: 40 parallel guesses, 40 answered 403.
+      const statuses = (await Promise.all(
+        Array.from({ length: 40 }, () => login("wrong")),
+      )).map((r) => r.status);
+
+      expect(statuses.filter((s) => s === 403).length).toBe(5);
+      expect(statuses.filter((s) => s === 429).length).toBe(35);
+    });
+
     it("throttles per client IP", async () => {
       for (let i = 0; i < 5; i++) {
         await login("wrong", "203.0.113.7");
