@@ -134,37 +134,23 @@ The repository includes several automated workflows:
 
 - **`ci.yml`** - Runs type checking and formatting validation on every push/PR
 - **`test.yml`** - Runs comprehensive tests (server + client) with coverage reporting
-- **`build.yml`** - Builds the project, and on upstream triggers deployment
-- **`deploy.yml`** - Deploys to Workers. Its deploy step runs `bun run deploy`, so it takes the same path as a hand deploy and **does not** use Cloudflare Pages, despite the name of this workflow.
+- **`build.yml`** - Builds the project. Upstream chains a `deploy.yml` off it; this fork has none.
 
-> **In this fork, `deploy.yml` is disabled and nothing deploys from CI.** Its
-> state is `disabled_manually` in GitHub, which the YAML itself cannot show, and
-> the repository holds none of the secrets below. Every release is a hand-run
-> `bun run deploy`, so **merging to `main` is not releasing.** Check
-> `bunx wrangler deployments status` for what is actually live.
+> **This fork has no deploy workflow, and nothing deploys from CI.** Every
+> release is a hand-run `bun run deploy`, so **merging to `main` is not
+> releasing.** Check `bunx wrangler deployments status` for what is actually
+> live.
 >
-> It has never deployed once. `deploy.yml` has exactly two runs, both on
-> 2026-09-17, and both failed at `Deploy to Cloudflare` with `it's necessary to
-> set a CLOUDFLARE_API_TOKEN`. Verified 2026-09-19: `actions/secrets` and
-> `actions/variables` each return `total_count: 0`, and no `production`
-> environment exists. **Re-enabling the workflow without first adding the
-> secrets below just reproduces those two failures.**
+> Upstream's `deploy.yml` was deleted on 2026-09-26. It had never deployed
+> here (no secrets, `disabled_manually`), and it was unsafe to turn on in a
+> public repo: it ran on the `workflow_run` of `Build`, which also runs on fork
+> PRs, and took its production/preview decision and PR number from files in
+> that build's artifact, which a fork PR controls. CLAUDE.md has the details and
+> what a safe replacement must do. Do not restore upstream's copy.
 >
 > The upstream `deploy.yml` status badge was removed from the top of this file
-> for the same reason. It read `openRin/Rin`, so it reported *upstream's* deploy
-> health on a fork that does not deploy from CI at all — a green badge standing
-> in for a check that never ran here.
-
-**Required secrets (Repository Settings → Secrets and variables → Actions):**
-
-- `CLOUDFLARE_API_TOKEN` - Your Cloudflare API token with Workers and Pages permissions
-- `CLOUDFLARE_ACCOUNT_ID` - Your Cloudflare account ID
-
-**Optional configuration (Repository Settings → Secrets and variables → Variables):**
-
-- `WORKER_NAME`, `PAGES_NAME`, `DB_NAME` - Resource names
-- `NAME`, `DESCRIPTION`, `AVATAR` - Site configuration
-- `R2_BUCKET_NAME` - Specific R2 bucket to use
+> earlier for a related reason: it read `openRin/Rin`, so it reported
+> *upstream's* deploy health on a fork that does not deploy from CI at all.
 
 Full documentation is available at https://docs.openrin.org.
 

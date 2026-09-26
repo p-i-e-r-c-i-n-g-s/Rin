@@ -530,9 +530,9 @@ export function SearchService(): Hono<{
         const admin = c.get('admin');
         const page = c.req.query('page');
         const limit = c.req.query('limit');
-        let keyword = c.req.param('keyword');
-
-        keyword = decodeURI(keyword);
+        // Hono has already percent-decoded the param. Decoding it again threw
+        // URIError on a literal "%" (a 500) and rewrote "50%20off" to "50 off".
+        const keyword = c.req.param('keyword');
         const page_num = parsePositiveInteger(page, 1) - 1;
         const limit_num = parsePositiveInteger(limit, 20, 50);
 

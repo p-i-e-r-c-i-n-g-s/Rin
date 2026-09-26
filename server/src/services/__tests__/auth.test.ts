@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { Hono } from "hono";
-import { PasswordAuthService } from "../auth";
+import { PasswordAuthService, loginThrottleKey } from "../auth";
 import {
   createMockDB,
   createMockEnv,
@@ -310,6 +310,30 @@ describe("PasswordAuthService", () => {
       }
     });
 
+    it("evaluates at most five of forty concurrent wrong passwords", async () => {
+      // Before the fix all 40 read a count of 0 before any of them recorded a
+      // failure, so every one got a password check: 40x 403, none throttled.
+      const responses = await Promise.all(Array.from({ length: 40 }, () => login("wrong")));
+      const statuses = responses.map((res) => res.status);
+
+      expect(statuses.filter((status) => status === 403).length).toBe(5);
+      expect(statuses.filter((status) => status === 429).length).toBe(35);
+      expect((await login("admin123")).status).toBe(429);
+    });
+
+    it("throttles an IPv6 /64 as one client", async () => {
+      // A /64 is the normal allocation to one subscriber, so per-address
+      // buckets would hand one attacker 2^64 fresh buckets.
+      for (let i = 1; i <= 5; i++) {
+        expect((await login("wrong", `2001:db8:1:2::${i}`)).status).toBe(403);
+      }
+
+      // Same /64, written uncompressed with leading zeros and upper case.
+      expect((await login("wrong", "2001:0DB8:0001:0002:ffff:ffff:ffff:ffff")).status).toBe(429);
+      // The neighbouring /64 is a different client.
+      expect((await login("admin123", "2001:db8:1:3::1")).status).toBe(200);
+    });
+
     it("starts a fresh window once the old one has expired", async () => {
       for (let i = 0; i < 5; i++) {
         await login("wrong");
@@ -322,6 +346,31 @@ describe("PasswordAuthService", () => {
       expect((await login("wrong")).status).toBe(403);
       const rows = sqlite.prepare("SELECT failures FROM login_attempts").all() as any[];
       expect(rows).toEqual([{ failures: 1 }]);
+    });
+  });
+
+  describe("loginThrottleKey", () => {
+    it("keys IPv4 on the full address", () => {
+      expect(loginThrottleKey("203.0.113.7")).toBe("203.0.113.7");
+      expect(loginThrottleKey("unknown")).toBe("unknown");
+    });
+
+    it("keys IPv6 on the /64, whatever the spelling", () => {
+      expect(loginThrottleKey("2001:db8:1:2::1")).toBe("2001:db8:1:2::/64");
+      expect(loginThrottleKey("2001:0DB8:0001:0002:aaaa:bbbb:cccc:dddd")).toBe("2001:db8:1:2::/64");
+      expect(loginThrottleKey("2001:db8::")).toBe("2001:db8:0:0::/64");
+      expect(loginThrottleKey("::1")).toBe("0:0:0:0::/64");
+      expect(loginThrottleKey("64:ff9b::192.0.2.1")).toBe("64:ff9b:0:0::/64");
+    });
+
+    it("treats an IPv4-mapped address as the IPv4 address", () => {
+      expect(loginThrottleKey("::ffff:203.0.113.7")).toBe("203.0.113.7");
+    });
+
+    it("leaves anything it cannot parse unchanged", () => {
+      expect(loginThrottleKey("1::2::3")).toBe("1::2::3");
+      expect(loginThrottleKey("1:2:3")).toBe("1:2:3");
+      expect(loginThrottleKey("fe80::1%eth0")).toBe("fe80::1%eth0");
     });
   });
 

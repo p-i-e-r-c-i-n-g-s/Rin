@@ -39,3 +39,6 @@ dist-ssr
 
 # Bun
 .bun/*
+
+# Secrets file older deploy scripts wrote at the repo root (now in the OS temp dir)
+.wrangler-secrets.json

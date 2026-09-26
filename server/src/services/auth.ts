@@ -22,10 +22,10 @@ async function hashPassword(password: string): Promise<string> {
 
 // Login throttle. The admin username is published on every post, so before
 // this the password was the only barrier and nothing limited guesses.
-// ponytail: per-IP only, so guessing spread across many IPs is slowed, not
-// stopped; add Turnstile on the login form if that ever shows up. The zone's one
-// Free-plan rate-limit rule is already spent on "Prevent Flooding", which is why
-// this lives in the app.
+// ponytail: per-IP (per /64 for IPv6) only, so guessing spread across many IPs
+// is slowed, not stopped; add Turnstile on the login form if that ever shows
+// up. The zone's one Free-plan rate-limit rule is already spent on "Prevent
+// Flooding", which is why this lives in the app.
 const LOGIN_WINDOW_SECONDS = 15 * 60;
 const LOGIN_MAX_FAILURES = 5;
 
@@ -36,23 +36,57 @@ function loginClientIp(c: AppContext) {
     return c.req.header('cf-connecting-ip') || 'unknown';
 }
 
-async function assertLoginNotThrottled(db: any, ip: string, now: number) {
-    const row = await db.query.loginAttempts.findFirst({ where: eq(loginAttempts.ip, ip) });
-    if (row && row.windowStart > now - LOGIN_WINDOW_SECONDS && row.failures >= LOGIN_MAX_FAILURES) {
-        throw new RateLimitError('Too many failed login attempts. Try again later.');
+// IPv6 is bucketed by /64. That is the normal allocation to one subscriber, so
+// keying on the full address would hand one attacker 2^64 fresh buckets.
+// Anything that does not parse as IPv6 (IPv4, 'unknown') is used as is.
+export function loginThrottleKey(ip: string) {
+    const mappedV4 = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(ip);
+    if (mappedV4) {
+        return mappedV4[1];
     }
+    if (!ip.includes(':')) {
+        return ip;
+    }
+
+    // An embedded IPv4 tail only fills the last 32 bits, never the /64 prefix.
+    const halves = ip.toLowerCase().replace(/\d{1,3}(?:\.\d{1,3}){3}$/, '0:0').split('::');
+    const groupsOf = (part: string) => (part ? part.split(':') : []);
+    const head = groupsOf(halves[0]);
+    const tail = halves.length === 2 ? groupsOf(halves[1]) : [];
+    const fill = 8 - head.length - tail.length;
+    if (halves.length > 2 || (halves.length === 2 ? fill < 1 : fill !== 0)) {
+        return ip;
+    }
+
+    const groups = [...head, ...Array(fill).fill('0'), ...tail];
+    if (!groups.every((group) => /^[0-9a-f]{1,4}$/.test(group))) {
+        return ip;
+    }
+    return `${groups.slice(0, 4).map((group) => parseInt(group, 16).toString(16)).join(':')}::/64`;
 }
 
-async function recordLoginFailure(db: any, ip: string, now: number) {
-    // Sweeping expired rows first means a returning IP starts a fresh window,
-    // and the table only ever holds IPs with failures in the last window.
-    await db.delete(loginAttempts).where(lte(loginAttempts.windowStart, now - LOGIN_WINDOW_SECONDS));
-    await db.insert(loginAttempts)
-        .values({ ip, failures: 1, windowStart: now })
+// Counts this attempt and returns the new count, in one statement. The check
+// used to read the count, hash the password, and write the failure afterwards,
+// so N concurrent guesses all read the same stale count and all got a password
+// check (measured: 40 of 40 evaluated against a limit of 5). A single upsert is
+// atomic in D1, so each attempt is judged by the count it wrote itself.
+async function reserveLoginAttempt(db: any, key: string, now: number): Promise<number> {
+    const expired = now - LOGIN_WINDOW_SECONDS;
+    // Housekeeping only: the table holds just the clients with a live window.
+    // The CASE below resets an expired row on its own, so correctness does not
+    // depend on this delete landing first.
+    await db.delete(loginAttempts).where(lte(loginAttempts.windowStart, expired));
+    const [row] = await db.insert(loginAttempts)
+        .values({ ip: key, failures: 1, windowStart: now })
         .onConflictDoUpdate({
             target: loginAttempts.ip,
-            set: { failures: sql`${loginAttempts.failures} + 1` },
-        });
+            set: {
+                failures: sql`CASE WHEN ${loginAttempts.windowStart} <= ${expired} THEN 1 ELSE ${loginAttempts.failures} + 1 END`,
+                windowStart: sql`CASE WHEN ${loginAttempts.windowStart} <= ${expired} THEN ${now} ELSE ${loginAttempts.windowStart} END`,
+            },
+        })
+        .returning({ failures: loginAttempts.failures });
+    return row.failures;
 }
 
 export function PasswordAuthService(): Hono<{
@@ -84,12 +118,14 @@ export function PasswordAuthService(): Hono<{
         }
 
         // Checked before the password is even hashed, so a throttled client gets
-        // the same 429 whether or not its guess would have been right.
-        const ip = loginClientIp(c);
+        // the same 429 whether or not its guess would have been right. Every
+        // attempt is counted up front; a successful login clears the count.
+        const ip = loginThrottleKey(loginClientIp(c));
         const now = Math.floor(Date.now() / 1000);
-        await assertLoginNotThrottled(db, ip, now);
-        const rejectLogin = async (): Promise<never> => {
-            await recordLoginFailure(db, ip, now);
+        if (await reserveLoginAttempt(db, ip, now) > LOGIN_MAX_FAILURES) {
+            throw new RateLimitError('Too many failed login attempts. Try again later.');
+        }
+        const rejectLogin = (): never => {
             throw new ForbiddenError('Invalid credentials');
         };
 
