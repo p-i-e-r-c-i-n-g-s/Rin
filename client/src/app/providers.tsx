@@ -18,7 +18,10 @@ export function AppProviders({
     <ClientConfigContext.Provider value={config}>
       <ProfileContext.Provider value={profile}>
         <Helmet>
-          <link rel="icon" href="/favicon.ico" />
+          {/* The ?v= is the cache bust. /favicon.ico answers max-age=31536000,
+              so a browser holding the old icon never asks again. When the
+              stored favicon changes, raise the number. */}
+          <link rel="icon" href="/favicon.ico?v=2" />
         </Helmet>
         {children}
       </ProfileContext.Provider>
