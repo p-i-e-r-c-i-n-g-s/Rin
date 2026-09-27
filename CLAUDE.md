@@ -1092,8 +1092,10 @@ different this time: on 23 Sep there was no cached success to outlive. Now
 there is. `/favicon` and `/favicon.ico` answer `max-age=31536000`, so a
 browser that already holds the old flower keeps it for up to a year and a
 reload does not help. New visitors get the dahlia. Reaching returning ones
-needs a new URL: change the `href` in `client/src/app/providers.tsx`
-(`/favicon.ico` → `/favicon.ico?v=2`) and deploy. Not done.
+needs a new URL, so the `href` in `client/src/app/providers.tsx` is now
+`/favicon.ico?v=2`. **Raise that number whenever the stored favicon
+changes.** The Worker matches the route on the path, so the query string
+changes nothing on the server.
 
 ### Workers Logs is OFF in production, by this repo's own generator
 
