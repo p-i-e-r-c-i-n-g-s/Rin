@@ -2,200 +2,189 @@
 
 English | [简体中文](./README_zh_CN.md)
 
-![GitHub commit activity](https://img.shields.io/github/commit-activity/w/openRin/Rin?style=for-the-badge)
-![GitHub branch check runs](https://img.shields.io/github/check-runs/openRin/Rin/main?style=for-the-badge)
-![GitHub top language](https://img.shields.io/github/languages/top/openRin/Rin?style=for-the-badge)
-![GitHub License](https://img.shields.io/github/license/openRin/Rin?style=for-the-badge)
+# Rin
 
-[![Discord](https://img.shields.io/badge/Discord-openRin-red?style=for-the-badge&color=%236e7acc)](https://discord.gg/JWbSTHvAPN)
-[![Telegram](https://img.shields.io/badge/Telegram-openRin-red?style=for-the-badge&color=%233390EC)](https://t.me/openRin)
+Rin is a blog platform that runs entirely on Cloudflare. There is no server to
+manage.
 
-## Introduction
+This repository is a fork of [openRin/Rin](https://github.com/openRin/Rin). It
+runs the blog at `blog.pearcache.com`. For the original project, its demo and
+its full documentation, see <https://docs.openrin.org>.
 
-Rin is a modern, serverless blog platform built entirely on Cloudflare's developer platform: Pages for hosting, Workers for serverless functions, D1 for SQLite database, and R2 for object storage. Deploy your personal blog with just a domain name pointed to Cloudflare—no server management required.
+## How it fits together
 
-## Live Demo
+```mermaid
+flowchart LR
+    browser[Browser] --> worker[Worker: rin-server]
+    worker --> assets[Built frontend<br/>Worker assets]
+    worker --> d1[(D1<br/>posts, comments, users)]
+    worker --> r2[(R2<br/>images)]
+    worker --> queue[Queue<br/>background tasks]
+    cron[Cron, every 20 min] -->|check friend links| worker
+```
 
-https://xeu.life
+One Worker does everything. It serves the built frontend from its own asset
+store and answers the API. This fork does not use Cloudflare Pages.
+
+| Part | Where it lives |
+|---|---|
+| Frontend | `client/` |
+| Backend | `server/` |
+| Shared types, config and UI | `packages/` |
+| Command-line tool behind every `bun run` script | `cli/` |
+| Documentation site | `docs/` |
 
 ## Features
 
-- **Authentication & Management**: GitHub OAuth login. The first registered user becomes an administrator, while subsequent users join as regular members.
-- **Content Creation**: Write and edit articles with a rich, intuitive editor.
-- **Real-time Autosave**: Local drafts are saved automatically in real-time, with isolation between different articles.
-- **Privacy Control**: Mark articles as "Visible only to me" for private drafts or personal notes, synchronized across devices.
-- **Image Management**: Drag-and-drop or paste images to upload directly to S3-compatible storage (e.g., Cloudflare R2), with automatic link generation.
-- **Custom Slugs**: Assign friendly URLs like `https://yourblog.com/about` using custom article aliases.
-- **Unlisted Posts**: Option to keep articles out of the public homepage listing.
-- **Blogroll**: Add links to friends' blogs. The backend automatically checks link availability every 20 minutes.
-- **Comment System**: Reply to comments or moderate them with delete functionality.
-- **Webhook Notifications**: Receive real-time alerts for new comments via configurable webhooks.
-- **Featured Images**: Automatically detect the first image in an article and use it as the cover image in listings.
-- **Tag Parsing**: Input tags like `#Blog #Cloudflare` and have them automatically parsed and displayed.
-- **Type Safety**: End-to-end type safety with shared TypeScript types between client and server via `@rin/api` package.
-- ...and more! Explore all features at https://xeu.life.
+- **Login.** GitHub OAuth, or a username and password. The first registered
+  user becomes the administrator.
+- **Writing.** A rich editor with drafts saved locally as you type, kept
+  separate per article.
+- **Privacy.** Mark an article "visible only to me", or keep it off the
+  homepage list.
+- **Images.** Drag, drop or paste to upload to S3-compatible storage such as
+  Cloudflare R2.
+- **Friendly addresses.** Give an article a custom address like `/about`.
+- **Friend links.** Add links to other blogs. The backend checks they are
+  reachable every 20 minutes.
+- **Comments.** Reply to or delete comments, and get a webhook notification for
+  new ones.
+- **Cover images.** The first image in an article becomes its cover.
+- **Tags.** Type `#Blog #Cloudflare` and the tags are picked out for you.
+- **Type safety.** The client and server share TypeScript types through the
+  `@rin/api` package.
 
-## Documentation
+## Quick start
 
-### Quick Start
+You need [Bun](https://bun.sh).
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/openRin/Rin.git && cd Rin
+git clone https://github.com/p-i-e-r-c-i-n-g-s/Rin.git && cd Rin
+```
 
-# 2. Install dependencies
+```bash
 bun install
+```
 
-# 3. Configure environment variables
+```bash
 cp .env.example .env.local
-# Edit .env.local with your own configuration
+```
 
-# 4. Start the development server
+Edit `.env.local` with your own settings, then:
+
+```bash
 bun run dev
 ```
 
-Visit http://localhost:5173 to start hacking!
+Open <http://localhost:5173>.
 
-### Testing
+## Testing
 
-Run the test suite to ensure everything works:
+| Command | What it runs |
+|---|---|
+| `bun run test` | All tests |
+| `bun run test:client` | Client tests only |
+| `bun run test:server` | Server tests only |
+| `bun run test:coverage` | All tests, with coverage |
+| `bun run check` | Type checks |
 
-```bash
-# Run all tests (client + server)
-bun run test
+## Deploying
 
-# Run client tests only
-bun run test:client
-
-# Run server tests only
-bun run test:server
-
-# Run tests with coverage
-bun run test:coverage
-```
-
-### One-Command Deployment
-
-Deploy both frontend and backend to Cloudflare with a single command:
+**Merging to `main` does not deploy.** Every release is run by hand:
 
 ```bash
-# Deploy everything (frontend + backend)
 bun run deploy
-
-# Deploy only backend
-bun run deploy --server
-
-# Deploy only frontend to Cloudflare Pages
-bun run deploy --client
 ```
 
-> There are no `deploy:server` / `deploy:client` scripts -- the target is a flag
-> on the one `deploy` command.
+```mermaid
+flowchart LR
+    push[Push to main] --> ci[GitHub: CI, tests, Build]
+    hand[bun run deploy<br/>run by hand] --> live[Worker: rin-server<br/>blog.pearcache.com]
+    ci -.->|no link| live
+    live --> status[wrangler deployments status<br/>names the commit that is live]
+```
 
-**Required environment variables:**
+| Command | What it deploys |
+|---|---|
+| `bun run deploy` | Backend and frontend, as one Worker |
+| `bun run deploy --server` | Backend only |
+| `bun run deploy --client` | Frontend only, to Cloudflare Pages. This fork does not use it. |
 
-- `CLOUDFLARE_API_TOKEN` - Your Cloudflare API token
-- `CLOUDFLARE_ACCOUNT_ID` - Your Cloudflare account ID
+The target is a flag. There are no `deploy:server` or `deploy:client` scripts.
 
-**Optional environment variables:**
+The deploy does these steps for you:
 
-- `WORKER_NAME` - Backend worker name (default: `rin-server`)
-- `PAGES_NAME` - Frontend pages name (default: `rin-client`)
-- `DB_NAME` - D1 database name (default: `rin`)
-- `R2_BUCKET_NAME` - R2 bucket name. If set, deploy derives the matching `S3_*` values automatically. If unset, no bucket is auto-selected.
+1. Creates the D1 database if it does not exist.
+2. Works out the `S3_*` storage settings from `R2_BUCKET_NAME`, only when that
+   is set.
+3. Copies Worker secrets from your environment.
+4. Builds the frontend.
+5. Deploys the Worker, labelled with the commit it came from.
+6. Runs database migrations.
 
-The deployment script will automatically:
+### Settings
 
-- Create D1 database if it doesn't exist
-- Derive `S3_*` storage settings from `R2_BUCKET_NAME` only when it is explicitly set
-- Sync worker secrets from the environment
-- Deploy backend to Workers, annotating the version with the deployed commit
-- Build the frontend and serve it from the Worker's own asset store
-- Run database migrations
+| Variable | Needed? | Meaning |
+|---|---|---|
+| `CLOUDFLARE_API_TOKEN` | Yes | Your Cloudflare API token |
+| `CLOUDFLARE_ACCOUNT_ID` | Yes | Your Cloudflare account ID |
+| `WORKER_NAME` | Optional | Worker name. Default `rin-server`. |
+| `DB_NAME` | Optional | D1 database name. Default `rin`. |
+| `R2_BUCKET_NAME` | Optional | R2 bucket for images. No bucket is chosen for you if unset. |
+| `PAGES_NAME` | Optional | Pages project name, used only by `--client`. Default `rin-client`. |
 
-`bun run deploy` does **not** use Cloudflare Pages: the built client is served
-through the Worker's `[assets]` binding. `--client` is the only path that runs
-`wrangler pages deploy`.
-
-Because `wrangler deploy` uploads the working tree rather than a commit, the
-deploy passes `--message <short-sha>` so the serving version names its own
-commit (`-dirty` when the tree was not clean). Read it back with:
+### Checking what is live
 
 ```bash
 bunx wrangler deployments status
 ```
 
-Use `status`, not `deployments list`: `list` shows every version, and an
-annotated one can sit in it while a later, unannotated one is actually serving.
+A deploy uploads the files on your machine, not a commit. So each deploy is
+labelled with the short commit hash, plus `-dirty` if there were uncommitted
+changes. Use `status`, not `deployments list`. The list shows every version,
+including ones that are not serving.
 
-### GitHub Actions Workflows
+Checked on 27 Sep 2026:
 
-The repository includes several automated workflows:
+| Evidence | Finding |
+|---|---|
+| Worker deployments | Latest is 26 Sep 2026, 08:56:29 UTC, labelled `3cee010` |
+| `main` | Its newest commit is `3cee010`, so production matches `main` |
+| GitHub Actions | No run at that time. CI, tests and Build last ran at 05:44 UTC and passed on `3cee010`. |
+| Cloudflare Pages | The account has no Pages projects |
+| Cloudflare Workers Builds | No builds for this Worker |
 
-- **`ci.yml`** - Runs type checking and formatting validation on every push/PR
-- **`test.yml`** - Runs comprehensive tests (server + client) with coverage reporting
-- **`build.yml`** - Builds the project. Upstream chains a `deploy.yml` off it; this fork has none.
+## GitHub Actions
 
-> **This fork has no deploy workflow, and nothing deploys from CI.** Every
-> release is a hand-run `bun run deploy`, so **merging to `main` is not
-> releasing.** Check `bunx wrangler deployments status` for what is actually
-> live.
->
-> Upstream's `deploy.yml` was deleted on 2026-09-26. It had never deployed
-> here (no secrets, `disabled_manually`), and it was unsafe to turn on in a
-> public repo: it ran on the `workflow_run` of `Build`, which also runs on fork
-> PRs, and took its production/preview decision and PR number from files in
-> that build's artifact, which a fork PR controls. CLAUDE.md has the details and
-> what a safe replacement must do. Do not restore upstream's copy.
->
-> The upstream `deploy.yml` status badge was removed from the top of this file
-> earlier for a related reason: it read `openRin/Rin`, so it reported
-> *upstream's* deploy health on a fork that does not deploy from CI at all.
+| Workflow | What it does |
+|---|---|
+| `ci.yml` | Type checks and formatting, on every push and pull request |
+| `test.yml` | Server and client tests, with coverage |
+| `build.yml` | Builds the project |
+| `clean.yml` | Runs when a pull request closes |
+| `release.yml` | Runs when a version tag is pushed |
+| `docs.yml` | Publishes the documentation site. Its latest run, on 24 Sep 2026, failed. |
 
-Full documentation is available at https://docs.openrin.org.
+**Nothing deploys from CI.** Upstream's `deploy.yml` was deleted from this fork
+on 26 Sep 2026. It had never deployed here, and it was unsafe to turn on in a
+public repository: it ran after `Build`, which also runs on pull requests from
+forks, and it took its instructions from files a fork's pull request controls.
+Do not restore upstream's copy.
 
-## Community & Support
+## Who can reach it
 
-- Join our https://discord.gg/JWbSTHvAPN for discussions and help.
-- Follow updates on https://t.me/openRin.
-- Found a bug or have a feature request? Please open an issue on GitHub.
+`blog.pearcache.com` is public. A Cloudflare Access application named `blog`
+gives that hostname a bypass policy for everyone (Access configuration read on
+27 Sep 2026). The Worker's `workers.dev` address is switched off.
 
-## Star History
+## Community
 
-<a href="https://star-history.dera.page/#openRin/Rin&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=openRin/Rin&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=openRin/Rin&type=Date" />
-   <img alt="Star History Chart" src="https://star-history.dera.page/svg?repos=openRin/Rin&type=Date" />
- </picture>
-</a>
+This fork has no community channels of its own. For help with Rin itself:
 
-## Contributing
-
-We welcome contributions of all kinds—code, documentation, design, and ideas. Please check out our [contributing guidelines](https://docs.openrin.org/en/guide/contribution.html) and join us in building Rin together!
+- Discord: <https://discord.gg/JWbSTHvAPN>
+- Telegram: <https://t.me/openRin>
+- [Upstream contributing guide](https://docs.openrin.org/en/guide/contribution.html)
 
 ## License
 
-```
-MIT License
-
-Copyright (c) 2024 Xeu
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
+MIT License. Copyright (c) 2024 Xeu. See [LICENSE](./LICENSE).
