@@ -1067,6 +1067,34 @@ transformations are enabled. A new admin upload stores `originFavicon.<ext>`, th
 fails with the 403 text before it writes `favicon.webp`, so it does not
 overwrite this file.
 
+### 27 Sep 2026 — the favicon is now the dahlia, written the same way
+
+The admin upload was tried first and failed exactly as described above:
+`POST /api/favicon` → 403, `text/plain`, body `error code: 1050` (HAR of
+`blog.pearcache.com/admin/settings`). That was a mistake in the instructions
+given, not a new fault. **Do not use the admin upload for the favicon.**
+
+- **Source:** `~/Desktop/Pearcache/logos/dist-iso/rin/mark-512.png`, the
+  layered dahlia from the isometric family.
+- **Conversion:** this repo's `sharp`, same parameters as before. Result:
+  13,264 bytes, 144×144, alpha kept, looked at before upload.
+- **Replaced:** the 23 Sep object. It was read first and its SHA-256 began
+  `759f2172`, the value recorded above. A copy is kept at
+  `logos/saved/rin-favicon-before-2026-09-27.webp`.
+- **Upload:** `wrangler r2 object put pearcache-images/images/favicon.webp
+  --content-type image/webp --remote`.
+- **Verified:** read back from R2; SHA-256 `29b615b0…` matches the local file.
+- The failed upload did what this note predicts: it stored an
+  `originFavicon.png` and stopped before touching `favicon.webp`.
+
+**Not verified live**, for the same reason as before. And one thing is
+different this time: on 23 Sep there was no cached success to outlive. Now
+there is. `/favicon` and `/favicon.ico` answer `max-age=31536000`, so a
+browser that already holds the old flower keeps it for up to a year and a
+reload does not help. New visitors get the dahlia. Reaching returning ones
+needs a new URL: change the `href` in `client/src/app/providers.tsx`
+(`/favicon.ico` → `/favicon.ico?v=2`) and deploy. Not done.
+
 ### Workers Logs is OFF in production, by this repo's own generator
 
 `wrangler.toml` is gitignored and **generated** by
